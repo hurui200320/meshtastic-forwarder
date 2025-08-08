@@ -43,8 +43,10 @@ class MeshtasticClientApiReader(
                 }
             }
         } catch (e: Throwable) {
-            logger.error("Read loop failed", e)
-            close(e)
+            if (!closed.get()) {
+                logger.error("Read loop failed", e)
+                close(e)
+            }
         } finally {
             close(null)
         }

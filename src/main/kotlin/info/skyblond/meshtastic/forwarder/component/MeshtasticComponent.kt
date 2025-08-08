@@ -28,7 +28,7 @@ import kotlin.random.Random
 @Component
 class MeshtasticComponent(
     private val clientPort: MeshtasticClientPort
-) {
+) : AutoCloseable {
     private val logger = LoggerFactory.getLogger(MeshtasticComponent::class.java)
 
     @Volatile
@@ -54,16 +54,20 @@ class MeshtasticComponent(
     }
 
     fun disconnect() {
-        logger.info("Disconnecting from meshtastic device...")
         connectionLock.writeLock().withLock {
+            connectionPack?.let {
+                logger.info("Disconnecting from meshtastic device...")
+            }
             // try to tell the device we're about to disconnect
             trySendMessage(ToRadio.newBuilder().setDisconnect(true).build())
             connectionPack?.writer?.close()
             connectionPack?.reader?.close()
             connectionPack?.readerMessagesLoopJob?.cancel()
+            connectionPack?.let {
+                logger.info("Disconnected from meshtastic device")
+            }
             connectionPack = null
         }
-        logger.info("Disconnected from meshtastic device")
     }
 
     /**
@@ -281,6 +285,11 @@ class MeshtasticComponent(
     init {
         messageFlow.onEach(::processMessageForAck).launchIn(scope)
         connect()
+    }
+
+    override fun close() {
+        disconnect()
+        scope.cancel()
     }
 
     private data class ConnectionPack(

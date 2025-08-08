@@ -1,13 +1,9 @@
 package info.skyblond.meshtastic.forwarder.component
 
-import build.buf.gen.meshtastic.Channel
-import build.buf.gen.meshtastic.ModuleConfig
-import build.buf.gen.meshtastic.MqttClientProxyMessage
+import build.buf.gen.meshtastic.*
 import com.google.protobuf.ByteString
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import org.eclipse.paho.client.mqttv3.*
 import org.eclipse.paho.client.mqttv3.MqttAsyncClient.generateClientId
 import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence
@@ -26,7 +22,10 @@ import javax.net.ssl.X509TrustManager
  * Component for handling MQTT proxy.
  * */
 @Component
-class MqttComponent : AutoCloseable {
+class MqttComponent(
+    private val meshtasticComponent: MeshtasticComponent,
+    private val channelComponent: ChannelComponent
+) : AbstractMeshtasticComponentConsumer(meshtasticComponent) {
     private val logger = LoggerFactory.getLogger(MqttComponent::class.java)
 
     private val mqttClientRef = AtomicReference<MqttAsyncClient?>()
@@ -35,8 +34,24 @@ class MqttComponent : AutoCloseable {
     @Volatile
     private var rootTopic: String = DEFAULT_TOPIC_ROOT
 
-    private val mqttToDeviceSharedFlow = MutableSharedFlow<MqttClientProxyMessage>()
-    val mqttToDeviceFlow = mqttToDeviceSharedFlow.asSharedFlow()
+    init {
+        channelComponent.channelFlow.onEach(::onChannelChange).launchIn(scope)
+    }
+
+    override suspend fun consume(message: FromRadio) {
+        when (message.payloadVariantCase) {
+            FromRadio.PayloadVariantCase.MODULECONFIG ->
+                if (message.moduleConfig.payloadVariantCase == ModuleConfig.PayloadVariantCase.MQTT) {
+                    connect(message.moduleConfig.mqtt)
+                }
+
+            FromRadio.PayloadVariantCase.MQTTCLIENTPROXYMESSAGE ->
+                publish(message.mqttClientProxyMessage)
+
+            else -> {/* nop */
+            }
+        }
+    }
 
     fun connect(config: ModuleConfig.MQTTConfig) {
         if (config.enabled && config.proxyToClientEnabled) {
@@ -61,6 +76,7 @@ class MqttComponent : AutoCloseable {
                 mqttClient.setCallback(object : MqttCallbackExtended {
                     override fun connectComplete(reconnect: Boolean, serverURI: String) {
                         logger.info("MQTT connected to $serverURI: reconnect=$reconnect")
+                        onChannelChange(channelComponent.channelFlow.value)
                     }
 
                     override fun connectionLost(cause: Throwable) {
@@ -68,19 +84,22 @@ class MqttComponent : AutoCloseable {
                     }
 
                     override fun messageArrived(topic: String, message: MqttMessage) {
-                        runBlocking(Dispatchers.IO) {
-                            mqttToDeviceSharedFlow.emit(
-                                MqttClientProxyMessage.newBuilder()
-                                    .setTopic(topic)
-                                    .setData(ByteString.copyFrom(message.payload))
-                                    .setRetained(message.isRetained)
-                                    .build()
-                            )
-                        }
+                        logger.info("Forward MQTT message to device: topic=${topic}, size=${message.payload.size}")
+                        meshtasticComponent.sendMessage(
+                            ToRadio.newBuilder()
+                                .setMqttClientProxyMessage(
+                                    MqttClientProxyMessage.newBuilder()
+                                        .setTopic(topic)
+                                        .setData(ByteString.copyFrom(message.payload))
+                                        .setRetained(message.isRetained)
+                                        .build()
+                                )
+                                .build()
+                        )
                     }
 
                     override fun deliveryComplete(token: IMqttDeliveryToken?) {
-                        logger.info("MQTT deliveryComplete messageId: ${token?.messageId}")
+                        logger.debug("MQTT deliveryComplete messageId: ${token?.messageId}")
                     }
                 })
                 mqttClient.setBufferOpts(DisconnectedBufferOptions().apply {
@@ -125,6 +144,7 @@ class MqttComponent : AutoCloseable {
     }
 
     fun publish(message: MqttClientProxyMessage) {
+        logger.info("Forward MQTT message from device: topic=${message.topic}, size=${message.data.size()}")
         mqttClientRef.get()?.publish(
             message.topic, message.data.toByteArray(), DEFAULT_QOS, message.retained
         )
@@ -140,10 +160,6 @@ class MqttComponent : AutoCloseable {
             // force to close the connection anyway
             runCatching { client.close(true) }
         }
-    }
-
-    override fun close() {
-        TODO("Not yet implemented")
     }
 
     private fun generateConnectionOptions(config: ModuleConfig.MQTTConfig): MqttConnectOptions {
@@ -176,6 +192,11 @@ class MqttComponent : AutoCloseable {
                 socketFactory = sslContext.socketFactory
             }
         }
+    }
+
+    override fun close() {
+        super.close()
+        disconnect()
     }
 
     companion object {

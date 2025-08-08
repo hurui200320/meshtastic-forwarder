@@ -8,7 +8,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 
-abstract class AbstractConsumerComponent(
+abstract class AbstractMeshtasticComponentConsumer(
     meshtasticComponent: MeshtasticComponent
 ): AutoCloseable {
     protected val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
