@@ -55,14 +55,21 @@ class MqttComponent(
 
     fun connect(config: ModuleConfig.MQTTConfig) {
         if (config.enabled && config.proxyToClientEnabled) {
+            val scheme = if (config.tlsEnabled) "ssl" else "tcp"
+            val (host, port) = config.address.ifEmpty { DEFAULT_SERVER_ADDRESS }
+                .split(":", limit = 2).let { it[0] to (it.getOrNull(1)?.toIntOrNull() ?: 1883) }
+
+            // check current if connected to the same server
+            val currentServerUri = mqttClientRef.get()?.currentServerURI?: ""
+            val targetServerUri = "$scheme://$host:$port"
+            if (currentServerUri == targetServerUri) {
+                return
+            }
             disconnect() // disconnect old one
             if (config.jsonEnabled) {
                 logger.warn("This implementation doesn't support MQTT JSON topic, ignored...")
             }
             subscribedTopics.clear()
-            val scheme = if (config.tlsEnabled) "ssl" else "tcp"
-            val (host, port) = config.address.ifEmpty { DEFAULT_SERVER_ADDRESS }
-                .split(":", limit = 2).let { it[0] to (it.getOrNull(1)?.toIntOrNull() ?: -1) }
 
             val mqttClient = MqttAsyncClient(
                 URI(scheme, null, host, port, "", "", "").toString(),
@@ -84,7 +91,7 @@ class MqttComponent(
                     }
 
                     override fun messageArrived(topic: String, message: MqttMessage) {
-                        logger.info("Forward MQTT message to device: topic=${topic}, size=${message.payload.size}")
+                        logger.debug("Forward MQTT message to device: topic=${topic}, size=${message.payload.size}")
                         meshtasticComponent.sendMessage(
                             ToRadio.newBuilder()
                                 .setMqttClientProxyMessage(
@@ -144,7 +151,7 @@ class MqttComponent(
     }
 
     fun publish(message: MqttClientProxyMessage) {
-        logger.info("Forward MQTT message from device: topic=${message.topic}, size=${message.data.size()}")
+        logger.debug("Forward MQTT message from device: topic=${message.topic}, size=${message.data.size()}")
         mqttClientRef.get()?.publish(
             message.topic, message.data.toByteArray(), DEFAULT_QOS, message.retained
         )

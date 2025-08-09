@@ -12,6 +12,8 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import org.slf4j.LoggerFactory
+import org.springframework.boot.SpringApplication
+import org.springframework.context.ApplicationContext
 import org.springframework.stereotype.Component
 import java.io.IOException
 import java.util.concurrent.CompletableFuture
@@ -27,7 +29,8 @@ import kotlin.random.Random
  * */
 @Component
 class MeshtasticComponent(
-    private val clientPort: MeshtasticClientPort
+    private val clientPort: MeshtasticClientPort,
+    private val applicationContext: ApplicationContext
 ) : AutoCloseable {
     private val logger = LoggerFactory.getLogger(MeshtasticComponent::class.java)
 
@@ -51,23 +54,6 @@ class MeshtasticComponent(
             )
         }
         logger.info("Connected to meshtastic device")
-    }
-
-    fun disconnect() {
-        connectionLock.writeLock().withLock {
-            connectionPack?.let {
-                logger.info("Disconnecting from meshtastic device...")
-            }
-            // try to tell the device we're about to disconnect
-            trySendMessage(ToRadio.newBuilder().setDisconnect(true).build())
-            connectionPack?.writer?.close()
-            connectionPack?.reader?.close()
-            connectionPack?.readerMessagesLoopJob?.cancel()
-            connectionPack?.let {
-                logger.info("Disconnected from meshtastic device")
-            }
-            connectionPack = null
-        }
     }
 
     /**
@@ -205,17 +191,21 @@ class MeshtasticComponent(
             .build()
 
         val pendingPacket = meshPacket.to to CompletableFuture<Unit>()
-        pendingAckPackets.putIfAbsent(packetId, pendingPacket)
-        if (pendingAckPackets[packetId] !== pendingPacket) {
-            // the entry in the map is not the one we created,
-            // which suggests that the packet id is already used and pending for ACK.
-            logger.error("Packet id collision, packet id: {}", packetId)
-            return CompletableFuture.failedFuture(IllegalStateException("Packet id collision"))
+        if (wantAck) {
+            pendingAckPackets.putIfAbsent(packetId, pendingPacket)
+            if (pendingAckPackets[packetId] !== pendingPacket) {
+                // the entry in the map is not the one we created,
+                // which suggests that the packet id is already used and pending for ACK.
+                logger.error("Packet id collision, packet id: {}", packetId.toUInt())
+                return CompletableFuture.failedFuture(IllegalStateException("Packet id collision"))
+            }
+        } else {
+            pendingPacket.second.complete(Unit)
         }
         logger.info(
             "Sending data mesh packet: packetId={}, to={}, " +
                     "channel={}, wantAck={}, priority={}, hopLimit={}, pkiEncrypted={}",
-            packetId,
+            packetId.toUInt(),
             pendingPacket.first.let { n -> if (n.toNodeIdIsBroadcast()) "broadcast" else n.toUInt() },
             channel, wantAck, priority, hopLimit, pkiEncrypted
         )
@@ -233,9 +223,12 @@ class MeshtasticComponent(
         val routing = Routing.parseFrom(message.packet.decoded.payload)
         val ackPacketId = message.packet.decoded.requestId
         val errorReason = routing.errorReason
-
+        logger.debug(
+            "Mesh packet ACK: ackPacketId={}, ackFrom={}, error={}",
+            ackPacketId.toUInt(), fromId.toUInt(), errorReason
+        )
         val pendingPacket = pendingAckPackets[ackPacketId] ?: run {
-            logger.warn("[ACK] Received ack for unknown packet id: $ackPacketId")
+            logger.debug("Received ack for unknown packet id: {}", ackPacketId.toUInt())
             return
         }
         if (errorReason != Routing.Error.NONE) {
@@ -244,8 +237,8 @@ class MeshtasticComponent(
                 IOException("Packet delivery failed due to $errorReason")
             )
             logger.error(
-                "[ACK] Mesh packet failed to deliver: ackPacketId={}, ackFrom={}, error={}",
-                ackPacketId, fromId.toUInt(), errorReason
+                "Mesh packet failed to deliver: ackPacketId={}, ackFrom={}, error={}",
+                ackPacketId.toUInt(), fromId.toUInt(), errorReason
             )
             return
         }
@@ -254,8 +247,8 @@ class MeshtasticComponent(
             pendingAckPackets.remove(ackPacketId)
             pendingPacket.second.complete(Unit)
             logger.info(
-                "[ACK] Broadcast message delivered: ackPacketId={}, ackFrom={}",
-                ackPacketId, fromId.toUInt()
+                "Broadcast message delivered: ackPacketId={}, ackFrom={}",
+                ackPacketId.toUInt(), fromId.toUInt()
             )
         } else {
             // private message
@@ -263,13 +256,13 @@ class MeshtasticComponent(
                 pendingAckPackets.remove(ackPacketId)
                 pendingPacket.second.complete(Unit)
                 logger.info(
-                    "[ACK] Private message received by {}: ackPacketId={}",
-                    fromId.toUInt(), ackPacketId
+                    "Private message received by {}: ackPacketId={}",
+                    fromId.toUInt(), ackPacketId.toUInt()
                 )
             } else {
                 logger.info(
-                    "[ACK] Private message delivered to mesh, but not received yet: ackPacketId={}, ackFrom={}",
-                    ackPacketId, fromId.toUInt()
+                    "Private message delivered to mesh, but not received yet: ackPacketId={}, ackFrom={}",
+                    ackPacketId.toUInt(), fromId.toUInt()
                 )
             }
         }
@@ -279,10 +272,14 @@ class MeshtasticComponent(
     val messageFlow = messageSharedFlow.asSharedFlow()
 
     private fun processMessagesFromReader(reader: MeshtasticClientApiReader) = scope.launch {
-        for (message in reader.messageChannel) {
-            messageSharedFlow.emit(message)
+        runCatching {
+            for (message in reader.messageChannel) {
+                messageSharedFlow.emit(message)
+            }
         }
-        disconnect()
+        // TODO: find a better way to handle serial failure
+        logger.info("Read loop failed, serial connection is broken, exit...")
+        SpringApplication.exit(applicationContext, { 1 })
     }
 
     init {
@@ -291,7 +288,20 @@ class MeshtasticComponent(
     }
 
     override fun close() {
-        disconnect()
+        connectionLock.writeLock().withLock {
+            connectionPack?.let {
+                logger.info("Disconnecting from meshtastic device...")
+            }
+            // try to tell the device we're about to disconnect
+            trySendMessage(ToRadio.newBuilder().setDisconnect(true).build())
+            connectionPack?.writer?.close()
+            connectionPack?.reader?.close()
+            connectionPack?.readerMessagesLoopJob?.cancel()
+            connectionPack?.let {
+                logger.info("Disconnected from meshtastic device")
+            }
+            connectionPack = null
+        }
         scope.cancel()
     }
 

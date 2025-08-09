@@ -24,11 +24,12 @@ class MyNodeInfoComponent(
         if (message.payloadVariantCase != FromRadio.PayloadVariantCase.MY_INFO) return
         updateMutex.withLock {
             val myInfo = message.myInfo
-            logger.info("Device PlatformIO environment: ${myInfo.pioEnv}")
-            logger.info("Device id: ${myInfo.deviceId.toHex()}")
-            logger.info("Device node number: ${myInfo.myNodeNum.toUInt()}")
-            logger.info("Device node db entry size: ${myInfo.nodedbCount}")
-            myNodeInfoStateFlow.emit(myInfo)
+            if (myNodeInfoStateFlow.value != myInfo) {
+                logger.info("Device PlatformIO environment: ${myInfo.pioEnv}")
+                logger.info("Device id: ${myInfo.deviceId.toHex()}")
+                logger.info("Device node number: ${myInfo.myNodeNum.toUInt()}")
+                myNodeInfoStateFlow.emit(myInfo)
+            }
         }
     }
 }

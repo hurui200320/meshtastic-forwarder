@@ -129,7 +129,7 @@ class MeshtasticClientApiReader(
 
     private val closed = AtomicBoolean(false)
 
-    private suspend fun close(cause: Throwable?) {
+    private fun close(cause: Throwable?) {
         if (closed.compareAndSet(false, true)) {
             cause?.let {
                 logger.error("MeshtasticClientApiReader closed due to an error", it)
@@ -138,7 +138,6 @@ class MeshtasticClientApiReader(
             }
             readLoopJob.cancel()
             inputStream.close()
-            readLoopJob.join()
             _messageChannel.close(cause)
             scope.cancel()
         }

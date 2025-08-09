@@ -28,7 +28,7 @@ class ChannelComponent(
             channels[channelMessage.index] = channelMessage
             channelStateFlow.emit(channels.toList())
             if (channelMessage.role != Channel.Role.DISABLED) {
-                logger.info(
+                logger.debug(
                     "Get config for active channel #{} ({}): {}",
                     channelMessage.index,
                     channelMessage.role,

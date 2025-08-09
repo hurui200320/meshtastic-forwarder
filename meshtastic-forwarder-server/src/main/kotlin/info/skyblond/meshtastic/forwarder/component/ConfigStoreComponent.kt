@@ -26,7 +26,7 @@ class ConfigStoreComponent(
     override suspend fun consume(message: FromRadio) {
         if (message.payloadVariantCase == FromRadio.PayloadVariantCase.CONFIG) {
             updateMutex.withLock {
-                logger.info(
+                logger.debug(
                     "Get config: variantEnum={}, variantId={}",
                     message.config.payloadVariantCase,
                     message.config.payloadVariantCase.number

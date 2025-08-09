@@ -45,7 +45,7 @@ class NodeInfoComponent(
 
     private suspend fun processNodeInfo(nodeInfo: NodeInfo) {
         updateMutex.withLock {
-            logger.info(
+            logger.debug(
                 "Get info for node #{}: userId={}, shortName='{}', longName='{}', pubKey='{}'",
                 nodeInfo.num.toUInt(),
                 nodeInfo.user.id, nodeInfo.user.shortName, nodeInfo.user.longName,
@@ -60,7 +60,7 @@ class NodeInfoComponent(
 
     private suspend fun processUserInfo(nodeId: Int, userInfo: User) {
         updateMutex.withLock {
-            logger.info(
+            logger.debug(
                 "Get info for node #{}: userId={}, shortName='{}', longName='{}', pubKey='{}'",
                 nodeId.toUInt(),
                 userInfo.id, userInfo.shortName, userInfo.longName,

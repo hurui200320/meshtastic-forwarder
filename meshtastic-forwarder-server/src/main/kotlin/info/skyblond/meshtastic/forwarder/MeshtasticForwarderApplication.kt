@@ -7,5 +7,5 @@ import org.springframework.boot.runApplication
 class MeshtasticForwarderApplication
 
 fun main(args: Array<String>) {
-	runApplication<MeshtasticForwarderApplication>(*args)
+    runApplication<MeshtasticForwarderApplication>(*args)
 }
