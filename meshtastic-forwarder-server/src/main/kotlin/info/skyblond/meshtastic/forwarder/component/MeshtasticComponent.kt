@@ -188,7 +188,7 @@ class MeshtasticComponent(
         packetId: Int = generatePacketId(),
         priority: MeshPacket.Priority = MeshPacket.Priority.UNSET,
         channel: Int = 0,
-        publicKey: ByteString? = null,
+        publicKey: ByteString = ByteString.EMPTY,
         pkiEncrypted: Boolean = false,
     ): CompletableFuture<Unit> {
         val meshPacket = MeshPacket.newBuilder()
@@ -234,12 +234,12 @@ class MeshtasticComponent(
         val ackPacketId = message.packet.decoded.requestId
         val errorReason = routing.errorReason
 
-        val pendingPacket = pendingAckPackets.remove(ackPacketId)
-            ?: run {
-                logger.warn("[ACK] Received ack for unknown packet id: $ackPacketId")
-                return
-            }
+        val pendingPacket = pendingAckPackets[ackPacketId] ?: run {
+            logger.warn("[ACK] Received ack for unknown packet id: $ackPacketId")
+            return
+        }
         if (errorReason != Routing.Error.NONE) {
+            pendingAckPackets.remove(ackPacketId)
             pendingPacket.second.completeExceptionally(
                 IOException("Packet delivery failed due to $errorReason")
             )
@@ -247,9 +247,11 @@ class MeshtasticComponent(
                 "[ACK] Mesh packet failed to deliver: ackPacketId={}, ackFrom={}, error={}",
                 ackPacketId, fromId.toUInt(), errorReason
             )
+            return
         }
         if (pendingPacket.first.toNodeIdIsBroadcast()) {
             // broadcast message
+            pendingAckPackets.remove(ackPacketId)
             pendingPacket.second.complete(Unit)
             logger.info(
                 "[ACK] Broadcast message delivered: ackPacketId={}, ackFrom={}",
@@ -258,6 +260,7 @@ class MeshtasticComponent(
         } else {
             // private message
             if (fromId == pendingPacket.first) {
+                pendingAckPackets.remove(ackPacketId)
                 pendingPacket.second.complete(Unit)
                 logger.info(
                     "[ACK] Private message received by {}: ackPacketId={}",

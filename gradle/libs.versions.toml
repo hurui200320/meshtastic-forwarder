@@ -1,0 +1,16 @@
+[versions]
+kotlin = "1.9.25"
+kotlinx-coroutine = "1.10.2"
+springBoot = "3.5.4"
+springDependencyManagement = "1.1.7"
+meshtasticProtobuf = "1.4.3.1.20250801004510.6f83c9d1b844"
+
+[libraries]
+kotlinx-coroutine-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinx-coroutine" }
+meshtastic-protobuf = { module = "build.buf.gen:meshtastic_protobufs_grpc_kotlin", version.ref = "meshtasticProtobuf"}
+
+[plugins]
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlin-spring = { id = "org.jetbrains.kotlin.plugin.spring", version.ref = "kotlin" }
+spring-boot = { id = "org.springframework.boot", version.ref = "springBoot" }
+spring-dependency-management = { id = "io.spring.dependency-management", version.ref = "springDependencyManagement" }

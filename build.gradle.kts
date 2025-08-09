@@ -1,10 +1,7 @@
 import org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension
 
 plugins {
-    kotlin("jvm") version "1.9.25" apply false
-    kotlin("plugin.spring") version "1.9.25" apply false
-    id("org.springframework.boot") version "3.5.4" apply false
-    id("io.spring.dependency-management") version "1.1.7" apply false
+    alias(libs.plugins.kotlin.jvm) apply false
 }
 
 allprojects {
