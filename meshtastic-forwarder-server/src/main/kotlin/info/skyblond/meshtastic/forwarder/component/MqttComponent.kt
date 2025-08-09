@@ -191,6 +191,7 @@ class MqttComponent(
             if (config.tlsEnabled) {
                 socketFactory = sslContext.socketFactory
             }
+            maxInflight = 65535
         }
     }
 
