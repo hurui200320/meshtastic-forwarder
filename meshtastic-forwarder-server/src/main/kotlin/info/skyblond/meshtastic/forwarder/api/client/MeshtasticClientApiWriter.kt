@@ -40,7 +40,7 @@ class MeshtasticClientApiWriter(
             try {
                 // delay 2 sec between text messages, with some extra for safety
                 delay(2100)
-                logger.info(
+                logger.debug(
                     "Sending text message with 2s delay: packedId={}, size={}B",
                     message.packet.id.toUInt(), message.serializedSize
                 )

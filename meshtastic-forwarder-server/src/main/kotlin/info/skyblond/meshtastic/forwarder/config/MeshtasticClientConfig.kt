@@ -9,17 +9,17 @@ import org.springframework.context.annotation.Configuration
 import java.net.URI
 
 @Configuration
-@EnableConfigurationProperties(MeshtasticClientPortConfigProperties::class)
-class MeshtasticClientPortConfig {
-    private val logger = LoggerFactory.getLogger(MeshtasticClientPortConfig::class.java)
+@EnableConfigurationProperties(MeshtasticClientConfigProperties::class)
+class MeshtasticClientConfig {
+    private val logger = LoggerFactory.getLogger(MeshtasticClientConfig::class.java)
 
     @Bean
     fun clientPort(
-        config: MeshtasticClientPortConfigProperties,
+        config: MeshtasticClientConfigProperties,
     ): MeshtasticClientPort {
-        return when (config.uri.scheme.lowercase()) {
-            "serial" -> createSerialPort(config.uri)
-            else -> throw IllegalArgumentException("Unsupported scheme: ${config.uri.scheme}")
+        return when (config.portUri.scheme.lowercase()) {
+            "serial" -> createSerialPort(config.portUri)
+            else -> throw IllegalArgumentException("Unsupported scheme: ${config.portUri.scheme}")
         }
     }
 

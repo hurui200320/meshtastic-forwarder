@@ -88,10 +88,11 @@ class MqttComponent(
 
                     override fun connectionLost(cause: Throwable) {
                         logger.warn("MQTT connection lost: $cause")
+                        mqttClientRef.get()?.reconnect()
                     }
 
                     override fun messageArrived(topic: String, message: MqttMessage) {
-                        logger.debug("Forward MQTT message to device: topic=${topic}, size=${message.payload.size}")
+                        logger.info("Forward MQTT message to device: topic=${topic}, size=${message.payload.size}")
                         meshtasticComponent.sendMessage(
                             ToRadio.newBuilder()
                                 .setMqttClientProxyMessage(
@@ -151,7 +152,7 @@ class MqttComponent(
     }
 
     fun publish(message: MqttClientProxyMessage) {
-        logger.debug("Forward MQTT message from device: topic=${message.topic}, size=${message.data.size()}")
+        logger.info("Forward MQTT message from device: topic=${message.topic}, size=${message.data.size()}")
         mqttClientRef.get()?.publish(
             message.topic, message.data.toByteArray(), DEFAULT_QOS, message.retained
         )

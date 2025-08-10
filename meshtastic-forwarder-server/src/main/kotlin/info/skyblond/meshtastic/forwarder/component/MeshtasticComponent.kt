@@ -213,8 +213,6 @@ class MeshtasticComponent(
         return pendingPacket.second
     }
 
-    // TODO: send text message (broadcast, private) method for MeshtasticMessageSender
-
     private fun processMessageForAck(message: FromRadio) {
         if (message.payloadVariantCase != FromRadio.PayloadVariantCase.PACKET) return
         if (message.packet.payloadVariantCase != MeshPacket.PayloadVariantCase.DECODED) return
@@ -223,7 +221,7 @@ class MeshtasticComponent(
         val routing = Routing.parseFrom(message.packet.decoded.payload)
         val ackPacketId = message.packet.decoded.requestId
         val errorReason = routing.errorReason
-        logger.debug(
+        logger.info(
             "Mesh packet ACK: ackPacketId={}, ackFrom={}, error={}",
             ackPacketId.toUInt(), fromId.toUInt(), errorReason
         )
