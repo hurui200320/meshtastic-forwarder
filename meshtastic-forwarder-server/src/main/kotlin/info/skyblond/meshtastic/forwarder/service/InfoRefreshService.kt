@@ -1,18 +1,24 @@
 package info.skyblond.meshtastic.forwarder.service
 
-import build.buf.gen.meshtastic.AdminMessage
-import build.buf.gen.meshtastic.Data
-import build.buf.gen.meshtastic.PortNum
-import build.buf.gen.meshtastic.ToRadio
+import build.buf.gen.meshtastic.*
 import info.skyblond.meshtastic.forwarder.component.ConfigStoreComponent
 import info.skyblond.meshtastic.forwarder.component.MeshtasticComponent
 import info.skyblond.meshtastic.forwarder.component.MyNodeInfoComponent
 import info.skyblond.meshtastic.forwarder.config.MeshtasticClientConfigProperties
 import info.skyblond.meshtastic.forwarder.getSecurityConfig
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import kotlin.math.min
+import kotlin.random.Random
 
 @Service
 class InfoRefreshService(
@@ -25,6 +31,8 @@ class InfoRefreshService(
 
     private val executor = Executors.newSingleThreadScheduledExecutor()
 
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
     init {
         executor.scheduleAtFixedRate(
             {
@@ -35,15 +43,36 @@ class InfoRefreshService(
             configProperties.configRefreshMinutes,
             TimeUnit.MINUTES
         )
+        meshtasticComponent.messageFlow.onEach { message ->
+            if (message.payloadVariantCase != FromRadio.PayloadVariantCase.CONFIG_COMPLETE_ID)
+                return@onEach
+            val configCompleteId = message.configCompleteId
+            val startTime = configIdToTimeMap[configCompleteId] ?: return@onEach
+            val duration = System.currentTimeMillis() - startTime
+            val minute = duration / 1000 / 60.0
+            if (minute >= configProperties.configRefreshMinutes) {
+                logger.warn(
+                    "Config fresh took {} minutes, which is longer than the refresh interval",
+                    minute
+                )
+            } else {
+                logger.info("Config refresh took {} minutes", minute)
+            }
+        }.launchIn(scope)
     }
+
+    private val configIdToTimeMap = ConcurrentHashMap<Int, Long>()
 
     private fun sendWantConfig() {
         logger.info("Sending want_config to fresh info")
+        val id = Random.nextInt()
         meshtasticComponent.sendMessage(
             ToRadio.newBuilder()
-                .setWantConfigId(meshtasticComponent.generatePacketId())
+                .setWantConfigId(id)
                 .build()
-        )
+        ).thenAccept {
+            configIdToTimeMap[id] = System.currentTimeMillis()
+        }
     }
 
     private fun sendSetTime() {
@@ -71,5 +100,6 @@ class InfoRefreshService(
 
     override fun close() {
         executor.shutdown()
+        scope.cancel()
     }
 }

@@ -38,14 +38,17 @@ class MeshtasticClientApiWriter(
     private val textMessageSendJob = scope.launch {
         for ((message, deferred) in textMessageChannel) {
             try {
-                // delay 2 sec between text messages, with some extra for safety
-                delay(2100)
+                val start = System.currentTimeMillis()
                 logger.debug(
                     "Sending text message with 2s delay: packedId={}, size={}B",
                     message.packet.id.toUInt(), message.serializedSize
                 )
                 writeMessage(message)
                 deferred.complete(Unit)
+                // delay 2 sec between text messages, with some extra for safety
+                if (System.currentTimeMillis() - start < 2050) {
+                    delay(2100 - System.currentTimeMillis() + start)
+                }
             } catch (e: IOException) {
                 logger.error("Error sending text message", e)
                 deferred.completeExceptionally(e)

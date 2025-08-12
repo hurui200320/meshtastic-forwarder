@@ -16,6 +16,7 @@ dependencies {
     implementation(libs.kotlinx.coroutine.core)
     implementation("org.eclipse.paho:org.eclipse.paho.client.mqttv3:1.2.5")
     implementation(libs.meshtastic.protobuf)
+    implementation("com.google.protobuf:protobuf-java-util:4.31.1")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
