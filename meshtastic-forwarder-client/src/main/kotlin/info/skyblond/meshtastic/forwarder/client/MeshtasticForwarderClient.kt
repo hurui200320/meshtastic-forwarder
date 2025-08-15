@@ -1,75 +1,74 @@
 package info.skyblond.meshtastic.forwarder.client
 
 import build.buf.gen.meshtastic.MeshPacket
-import kotlinx.coroutines.*
-import kotlinx.coroutines.channels.BufferOverflow
+import info.skyblond.meshtastic.forwarder.client.http.DeviceInfoService
+import info.skyblond.meshtastic.forwarder.client.http.MFHttpClient
+import info.skyblond.meshtastic.forwarder.client.http.SendMessageService
+import info.skyblond.meshtastic.forwarder.client.ws.MFWebSocketClient
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.buffer
-import kotlinx.coroutines.flow.map
+import okhttp3.OkHttpClient
 import org.eclipse.jetty.client.HttpClient
 import org.eclipse.jetty.util.component.LifeCycle
-import org.eclipse.jetty.websocket.api.Callback
-import org.eclipse.jetty.websocket.api.Session
-import org.eclipse.jetty.websocket.client.WebSocketClient
-import java.net.URI
-import java.nio.ByteBuffer
-import java.time.Duration
-import java.util.concurrent.atomic.AtomicReference
+import retrofit2.Retrofit
+import retrofit2.converter.jackson.JacksonConverterFactory
 import kotlin.concurrent.thread
 
 class MeshtasticForwarderClient(
-    httpClient: HttpClient,
     serverBaseUrl: String,
-    enableTls: Boolean
+    enableTls: Boolean,
+    token: String,
 ) : AutoCloseable {
-    private val wsClient = WebSocketClient(httpClient)
-    private val wsSessionRef = AtomicReference<Session?>(null)
-    private val meshPacketSharedFlow = MutableSharedFlow<Result<MeshPacket>>()
-    private val wsClientEndpoint = ClientEndpoint(meshPacketSharedFlow)
+
+    // =============== websocket ===============
+    private val jettyHttpClient: HttpClient = HttpClient()
+    private val wsClient: MFWebSocketClient
 
     /**
-     * The flow of received [MeshPacket], will cache latest 64 message.
-     * When buffer is overflowed, drop the oldest message.
-     *
-     * Will throw [WebSocketClosedException] if the websocket is failed.
+     * @see MFWebSocketClient.meshPacketFlow
      * */
-    val meshPacketFlow: Flow<MeshPacket> = meshPacketSharedFlow
-        .map { it.getOrThrow() }
-        .buffer(64, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    val meshPacketFlow: Flow<MeshPacket>
 
-    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    // =============== http ===============
+    private val retrofit: Retrofit
+
+    /**
+     * Client for HTTP endpoints
+     * */
+    val httpService: MFHttpClient
 
     init {
-        wsClient.idleTimeout = Duration.ofSeconds(15)
-        wsClient.start()
-        connectWebSocket(serverBaseUrl, enableTls)
-        scope.launch {
-            while (true) {
-                delay(5000)
-                wsSessionRef.get()?.let { session ->
-                    if (session.isOpen) {
-                        session.sendPing(ByteBuffer.allocate(0), Callback.NOOP)
+        // websocket
+        jettyHttpClient.start()
+        wsClient = MFWebSocketClient(jettyHttpClient, serverBaseUrl, enableTls, token)
+        meshPacketFlow = wsClient.meshPacketFlow
+        // http
+        retrofit = Retrofit.Builder()
+            .baseUrl("${if (enableTls) "https" else "http"}://$serverBaseUrl")
+            .addConverterFactory(JacksonConverterFactory.create())
+            .client(
+                OkHttpClient.Builder()
+                    .addInterceptor { chain ->
+                        chain.proceed(
+                            chain.request().newBuilder()
+                                .addHeader("Authorization", "Bearer $token")
+                                .build()
+                        )
                     }
-                }
-            }
-        }
-    }
-
-    private fun connectWebSocket(serverBaseUrl: String, enableTls: Boolean) {
-        val url = URI.create("${if (enableTls) "wss" else "ws"}://$serverBaseUrl/ws/packet")
-        wsClient.connect(wsClientEndpoint, url)
-            .thenApply {
-                // set new one to ref and close old one
-                wsSessionRef.getAndSet(it)?.close()
-            }
-            .get()
+                    .build()
+            )
+            .build()
+        val deviceInfoService = retrofit.create(DeviceInfoService::class.java)
+        val sendMessageService = retrofit.create(SendMessageService::class.java)
+        httpService = MFHttpClient(
+            deviceInfoService = deviceInfoService,
+            sendMessageService = sendMessageService
+        )
     }
 
     override fun close() {
-        scope.cancel()
-        // From jetty document, we want to stop WebSocketClient from a thread
-        // that is not owned by WebSocketClient itself
-        thread { LifeCycle.stop(wsClient) }
+        // close subcomponents first
+        wsClient.close()
+        thread { LifeCycle.stop(jettyHttpClient) }
+        // close our own resources
     }
 }

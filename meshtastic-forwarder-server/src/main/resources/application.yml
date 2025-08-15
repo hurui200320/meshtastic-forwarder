@@ -1,0 +1,14 @@
+spring:
+  application:
+    name: meshtastic-forwarder
+
+meshtastic:
+  client:
+    port-uri: serial:///dev/ttyACM0
+  server:
+    tokens:
+      # TODO: user friendly token config?
+      "token1":
+        - READ_MESH_PACKET
+        - SEND_MESH_PACKET
+        - READ_DEVICE_INFO

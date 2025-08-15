@@ -1,6 +1,7 @@
-package info.skyblond.meshtastic.forwarder.client
+package info.skyblond.meshtastic.forwarder.client.ws
 
 import build.buf.gen.meshtastic.MeshPacket
+import info.skyblond.meshtastic.forwarder.client.ws.WebSocketClosedException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.runBlocking
@@ -13,6 +14,7 @@ import org.eclipse.jetty.websocket.api.annotations.OnWebSocketMessage
 import org.eclipse.jetty.websocket.api.annotations.WebSocket
 import java.nio.ByteBuffer
 
+@Suppress("unused")
 @WebSocket
 class ClientEndpoint(
     private val meshPacketSharedFlow: MutableSharedFlow<Result<MeshPacket>>
