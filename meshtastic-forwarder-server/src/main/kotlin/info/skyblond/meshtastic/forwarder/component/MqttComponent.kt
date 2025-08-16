@@ -12,7 +12,9 @@ import org.springframework.stereotype.Component
 import java.net.URI
 import java.security.SecureRandom
 import java.security.cert.X509Certificate
+import java.time.Duration
 import java.util.concurrent.ConcurrentSkipListSet
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import javax.net.ssl.SSLContext
 import javax.net.ssl.TrustManager
@@ -53,17 +55,19 @@ class MqttComponent(
         }
     }
 
-    fun connect(config: ModuleConfig.MQTTConfig) {
+    fun connect(config: ModuleConfig.MQTTConfig, force: Boolean = false) {
         if (config.enabled && config.proxyToClientEnabled) {
             val scheme = if (config.tlsEnabled) "ssl" else "tcp"
             val (host, port) = config.address.ifEmpty { DEFAULT_SERVER_ADDRESS }
                 .split(":", limit = 2).let { it[0] to (it.getOrNull(1)?.toIntOrNull() ?: 1883) }
 
-            // check current if connected to the same server
-            val currentServerUri = mqttClientRef.get()?.currentServerURI?: ""
-            val targetServerUri = "$scheme://$host:$port"
-            if (currentServerUri == targetServerUri) {
-                return
+            if (!force) {
+                // check current if connected to the same server
+                val currentServerUri = mqttClientRef.get()?.currentServerURI ?: ""
+                val targetServerUri = "$scheme://$host:$port"
+                if (currentServerUri == targetServerUri) {
+                    return
+                }
             }
             disconnect() // disconnect old one
             if (config.jsonEnabled) {
@@ -88,7 +92,8 @@ class MqttComponent(
 
                     override fun connectionLost(cause: Throwable) {
                         logger.warn("MQTT connection lost: $cause")
-                        mqttClientRef.get()?.reconnect()
+                        disconnect(force = true)
+                        connect(config, force = true)
                     }
 
                     override fun messageArrived(topic: String, message: MqttMessage) {
@@ -106,8 +111,8 @@ class MqttComponent(
                         )
                     }
 
-                    override fun deliveryComplete(token: IMqttDeliveryToken?) {
-                        logger.debug("MQTT deliveryComplete messageId: ${token?.messageId}")
+                    override fun deliveryComplete(token: IMqttDeliveryToken) {
+                        logger.debug("MQTT deliveryComplete messageId: ${token.messageId}")
                     }
                 })
                 mqttClient.setBufferOpts(DisconnectedBufferOptions().apply {
@@ -153,18 +158,30 @@ class MqttComponent(
 
     fun publish(message: MqttClientProxyMessage) {
         logger.info("Forward MQTT message from device: topic=${message.topic}, size=${message.data.size()}")
+
+        val messageBytes = when (message.payloadVariantCase) {
+            MqttClientProxyMessage.PayloadVariantCase.DATA -> message.data.toByteArray()
+            MqttClientProxyMessage.PayloadVariantCase.TEXT -> message.text.encodeToByteArray()
+            MqttClientProxyMessage.PayloadVariantCase.PAYLOADVARIANT_NOT_SET -> ByteArray(0)
+        }
+
         mqttClientRef.get()?.publish(
-            message.topic, message.data.toByteArray(), DEFAULT_QOS, message.retained
-        )
+            message.topic, messageBytes, DEFAULT_QOS, message.retained
+        ) ?: logger.warn("MQTT client is not connected, skip publishing")
     }
 
-    fun disconnect() {
+    fun disconnect(force: Boolean = false) {
         val client = mqttClientRef.get()
         if (client != null && mqttClientRef.compareAndSet(client, null)) {
             subscribedTopics.clear()
             logger.info("Disconnecting MQTT client...")
-            // give 10s timeout for disconnecting
-            runCatching { client.disconnect().waitForCompletion(10_000) }
+            if (force) {
+                runCatching { client.disconnectForcibly() }
+            } else {
+                // give 10s timeout for disconnecting
+                runCatching { client.disconnect().waitForCompletion(10_000) }
+            }
+            logger.info("Closing MQTT client...")
             // force to close the connection anyway
             runCatching { client.close(true) }
         }
@@ -200,12 +217,13 @@ class MqttComponent(
                 socketFactory = sslContext.socketFactory
             }
             maxInflight = 65535
+            keepAliveInterval = 30
         }
     }
 
     override fun close() {
         super.close()
-        disconnect()
+        disconnect(force = true)
     }
 
     companion object {

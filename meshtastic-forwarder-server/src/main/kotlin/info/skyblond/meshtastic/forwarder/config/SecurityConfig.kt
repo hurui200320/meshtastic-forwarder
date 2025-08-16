@@ -10,6 +10,7 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.config.http.SessionCreationPolicy
 import org.springframework.security.web.SecurityFilterChain
 import org.springframework.security.web.authentication.www.BasicAuthenticationFilter
+import org.springframework.security.web.context.RequestAttributeSecurityContextRepository
 
 
 @Configuration
@@ -32,6 +33,13 @@ class SecurityConfig {
         http
             .csrf { it.disable() }
             .sessionManagement { it.sessionCreationPolicy(SessionCreationPolicy.STATELESS) }
+            .securityContext {
+                // here we explicitly specify the security context repository.
+                // by default, we use http session, but we don't have a session,
+                // and the request attr is the only way for DeferredResult to work
+                // with CompletableFuture, which the result is set by another thread.
+                it.securityContextRepository(RequestAttributeSecurityContextRepository())
+            }
             .authorizeHttpRequests {
                 it
                     .requestMatchers("/ws/packet").hasAuthority("READ_MESH_PACKET")

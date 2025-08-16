@@ -5,10 +5,7 @@ import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken
 import org.springframework.security.core.authority.SimpleGrantedAuthority
-import org.springframework.security.core.context.SecurityContext
 import org.springframework.security.core.context.SecurityContextHolder
-import org.springframework.security.web.authentication.WebAuthenticationDetailsSource
-import org.springframework.security.web.context.RequestAttributeSecurityContextRepository
 import org.springframework.web.filter.OncePerRequestFilter
 
 
@@ -40,23 +37,9 @@ class TokenAuthFilter(
                             "for request ${request.requestURI}" +
                             " with token: '$token', authorities: ${authentication.authorities}"
                 )
-                // save authentication to the request attribute
-                // this is REQUIRED when using DeferredResult
-                val requestAttributeSecurityContextRepository =
-                    RequestAttributeSecurityContextRepository()
-                val securityContext = SecurityContextHolder.createEmptyContext()
-                securityContext.authentication = authentication
-                requestAttributeSecurityContextRepository.saveContext(
-                    securityContext, request, response
-                )
-                authentication.details = WebAuthenticationDetailsSource().buildDetails(request)
                 // save to normal context
                 SecurityContextHolder.getContext().authentication = authentication
             }
-//            if (jwtService.validateToken(token)) {
-//                val username: String? = jwtService.extractUsername(token)
-
-//            }
         }
 
         chain.doFilter(request, response) // Continue filter chain
