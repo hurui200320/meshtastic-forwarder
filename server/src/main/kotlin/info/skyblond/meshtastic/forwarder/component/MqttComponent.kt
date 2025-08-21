@@ -12,8 +12,8 @@ import org.springframework.stereotype.Component
 import java.net.URI
 import java.security.SecureRandom
 import java.security.cert.X509Certificate
-import java.time.Duration
 import java.util.concurrent.ConcurrentSkipListSet
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import javax.net.ssl.SSLContext
@@ -50,85 +50,99 @@ class MqttComponent(
             FromRadio.PayloadVariantCase.MQTTCLIENTPROXYMESSAGE ->
                 publish(message.mqttClientProxyMessage)
 
-            else -> {/* nop */
+            else -> {
+                /* nop */
             }
         }
     }
 
-    fun connect(config: ModuleConfig.MQTTConfig, force: Boolean = false) {
-        if (config.enabled && config.proxyToClientEnabled) {
-            val scheme = if (config.tlsEnabled) "ssl" else "tcp"
-            val (host, port) = config.address.ifEmpty { DEFAULT_SERVER_ADDRESS }
-                .split(":", limit = 2).let { it[0] to (it.getOrNull(1)?.toIntOrNull() ?: 1883) }
+    @Synchronized
+    fun connect(config: ModuleConfig.MQTTConfig) {
+        if (!config.enabled || !config.proxyToClientEnabled) {
+            logger.info("MQTT is not enabled or proxy to client is not enabled, skip MQTT connecting attempt")
+            return
+        }
+        val scheme = if (config.tlsEnabled) "ssl" else "tcp"
+        val (host, port) = config.address.ifEmpty { DEFAULT_SERVER_ADDRESS }
+            .split(":", limit = 2).let { it[0] to (it.getOrNull(1)?.toIntOrNull() ?: 1883) }
 
-            if (!force) {
-                // check current if connected to the same server
-                val currentServerUri = mqttClientRef.get()?.currentServerURI ?: ""
-                val targetServerUri = "$scheme://$host:$port"
-                if (currentServerUri == targetServerUri) {
-                    return
+        // check current if connected to the same server
+        val currentServerUri = mqttClientRef.get()?.currentServerURI ?: ""
+        val targetServerUri = "$scheme://$host:$port"
+        if (currentServerUri == targetServerUri) {
+            return
+        }
+
+        val mqttClient = MqttAsyncClient(
+            URI(scheme, null, host, port, "", "", "").toString(),
+            generateClientId(),
+            MemoryPersistence(),
+        )
+        // disconnect old one
+        disconnect()
+        subscribedTopics.clear()
+        mqttClientRef.set(mqttClient)
+        // warn json topic
+        if (config.jsonEnabled) {
+            logger.warn("This implementation doesn't support MQTT JSON topic, ignored...")
+        }
+
+        rootTopic = config.root.ifEmpty { DEFAULT_TOPIC_ROOT }
+        logger.info("MQTT root topic: $rootTopic")
+
+        mqttClient.setCallback(object : MqttCallbackExtended {
+            override fun connectComplete(reconnect: Boolean, serverURI: String) {
+                logger.info("MQTT connected to $serverURI, reconnect=$reconnect")
+                onChannelChange(channelComponent.channelFlow.value)
+            }
+
+            override fun connectionLost(cause: Throwable) {
+                logger.warn("MQTT connection lost: $cause")
+                disconnect(force = true)
+            }
+
+            private val lastPrintMqttReceive = AtomicLong(System.nanoTime())
+            private val receivedMessageCounter = AtomicInteger(0)
+
+            override fun messageArrived(topic: String, message: MqttMessage) {
+                logger.debug("Forward MQTT message to device: topic=${topic}, size=${message.payload.size}")
+                synchronized(receivedMessageCounter) {
+                    val counter = receivedMessageCounter.incrementAndGet()
+                    val lastPrint = lastPrintMqttReceive.get()
+                    // duration in seconds
+                    val duration = (System.nanoTime() - lastPrint) / 1_000_000_000
+                    // min interval 60s, or print every 100 messages
+                    if (duration >= 60 || counter >= 100) {
+                        lastPrintMqttReceive.set(System.nanoTime())
+                        receivedMessageCounter.set(0)
+                        logger.info("Received $counter MQTT messages in last $duration seconds")
+                    }
                 }
-            }
-            disconnect() // disconnect old one
-            if (config.jsonEnabled) {
-                logger.warn("This implementation doesn't support MQTT JSON topic, ignored...")
-            }
-            subscribedTopics.clear()
-
-            val mqttClient = MqttAsyncClient(
-                URI(scheme, null, host, port, "", "", "").toString(),
-                generateClientId(),
-                MemoryPersistence(),
-            )
-            if (mqttClientRef.compareAndSet(null, mqttClient)) {
-                rootTopic = config.root.ifEmpty { DEFAULT_TOPIC_ROOT }
-                logger.info("MQTT root topic: $rootTopic")
-
-                mqttClient.setCallback(object : MqttCallbackExtended {
-                    override fun connectComplete(reconnect: Boolean, serverURI: String) {
-                        logger.info("MQTT connected to $serverURI: reconnect=$reconnect")
-                        onChannelChange(channelComponent.channelFlow.value)
-                    }
-
-                    override fun connectionLost(cause: Throwable) {
-                        logger.warn("MQTT connection lost: $cause")
-                        disconnect(force = true)
-                        connect(config, force = true)
-                    }
-
-                    override fun messageArrived(topic: String, message: MqttMessage) {
-                        logger.info("Forward MQTT message to device: topic=${topic}, size=${message.payload.size}")
-                        meshtasticComponent.sendMessage(
-                            ToRadio.newBuilder()
-                                .setMqttClientProxyMessage(
-                                    MqttClientProxyMessage.newBuilder()
-                                        .setTopic(topic)
-                                        .setData(ByteString.copyFrom(message.payload))
-                                        .setRetained(message.isRetained)
-                                        .build()
-                                )
+                meshtasticComponent.sendMessage(
+                    ToRadio.newBuilder()
+                        .setMqttClientProxyMessage(
+                            MqttClientProxyMessage.newBuilder()
+                                .setTopic(topic)
+                                .setData(ByteString.copyFrom(message.payload))
+                                .setRetained(message.isRetained)
                                 .build()
                         )
-                    }
-
-                    override fun deliveryComplete(token: IMqttDeliveryToken) {
-                        logger.debug("MQTT deliveryComplete messageId: ${token.messageId}")
-                    }
-                })
-                mqttClient.setBufferOpts(DisconnectedBufferOptions().apply {
-                    isBufferEnabled = true
-                    bufferSize = 512
-                    isPersistBuffer = false
-                    isDeleteOldestMessages = true
-                })
-                mqttClient.connect(generateConnectionOptions(config))
-            } else {
-                // someone else connected the mqtt
-                mqttClient.close(true)
+                        .build()
+                )
             }
-        } else {
-            logger.info("MQTT is not enabled or proxy to client is not enabled, skip MQTT connecting attempt")
-        }
+
+            override fun deliveryComplete(token: IMqttDeliveryToken) {
+                logger.debug("MQTT deliveryComplete messageId: ${token.messageId}")
+            }
+        })
+        mqttClient.setBufferOpts(DisconnectedBufferOptions().apply {
+            isBufferEnabled = true
+            bufferSize = 512
+            isPersistBuffer = false
+            isDeleteOldestMessages = true
+        })
+        mqttClient.connect(generateConnectionOptions(config)).waitForCompletion()
+        logger.info("MQTT client connected")
     }
 
     fun onChannelChange(channelList: List<Channel>) {
@@ -137,7 +151,10 @@ class MqttComponent(
             .filter { it.role != Channel.Role.DISABLED }
             .filter { it.settings.downlinkEnabled }
             .map { "$rootTopic$DEFAULT_TOPIC_LEVEL${it.settings.name}/+" }
-            .toSet()
+            .toMutableSet()
+
+        // PKI for dm
+        topicNames.add("$rootTopic${DEFAULT_TOPIC_LEVEL}PKI/+")
 
         synchronized(subscribedTopics) {
             (subscribedTopics - topicNames).forEach {
@@ -170,21 +187,20 @@ class MqttComponent(
         ) ?: logger.warn("MQTT client is not connected, skip publishing")
     }
 
+    @Synchronized
     fun disconnect(force: Boolean = false) {
-        val client = mqttClientRef.get()
-        if (client != null && mqttClientRef.compareAndSet(client, null)) {
-            subscribedTopics.clear()
-            logger.info("Disconnecting MQTT client...")
-            if (force) {
-                runCatching { client.disconnectForcibly() }
-            } else {
-                // give 10s timeout for disconnecting
-                runCatching { client.disconnect().waitForCompletion(10_000) }
-            }
-            logger.info("Closing MQTT client...")
-            // force to close the connection anyway
-            runCatching { client.close(true) }
+        val client = mqttClientRef.getAndSet(null) ?: return
+        subscribedTopics.clear()
+        logger.info("Disconnecting MQTT client...")
+        if (force) {
+            runCatching { client.disconnectForcibly() }
+        } else {
+            // give 10s timeout for disconnecting
+            runCatching { client.disconnect().waitForCompletion(10_000) }
         }
+        logger.info("Closing MQTT client...")
+        // force to close the connection anyway
+        runCatching { client.close(true) }
     }
 
     private fun generateConnectionOptions(config: ModuleConfig.MQTTConfig): MqttConnectOptions {
@@ -216,7 +232,7 @@ class MqttComponent(
             if (config.tlsEnabled) {
                 socketFactory = sslContext.socketFactory
             }
-            maxInflight = 65535
+            maxInflight = 100
             keepAliveInterval = 30
         }
     }

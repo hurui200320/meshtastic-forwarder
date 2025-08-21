@@ -1,0 +1,19 @@
+spring:
+  application:
+    name: meshtastic-forwarder
+# expose health endpoint
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+# meshtastic config
+meshtastic:
+  client:
+    # default serial port, override using env var `MESHTASTIC_CLIENT_PORTURI`
+    port-uri: serial:///dev/ttyACM0
+  server:
+    # read-only tokens, separate by comma, override using env var `MESHTASTIC_SERVER_ROTOKENS`
+    ro-tokens:
+    # read-write tokens, separate by comma, override using env var `MESHTASTIC_SERVER_RWTOKENS`
+    rw-tokens:
