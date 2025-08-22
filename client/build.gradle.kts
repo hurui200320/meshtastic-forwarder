@@ -10,15 +10,14 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-websocket")
     implementation("org.springframework.boot:spring-boot-starter-validation")
-    implementation("org.springframework.boot:spring-boot-starter-security")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
 
-    implementation(project(":common"))
-
     implementation(libs.kotlinx.coroutine.core)
-    implementation("org.eclipse.paho:org.eclipse.paho.client.mqttv3:1.2.5")
-    implementation(libs.meshtastic.protobuf)
+    implementation("com.squareup.okhttp3:okhttp:5.1.0")
+    implementation(project(":client-lib"))
+
+    implementation("com.openai:openai-java-spring-boot-starter:3.1.2")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")

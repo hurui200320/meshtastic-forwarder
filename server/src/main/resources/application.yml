@@ -1,6 +1,6 @@
 spring:
   application:
-    name: meshtastic-forwarder
+    name: meshtastic-forwarder-server
 # expose health endpoint
 management:
   endpoints:

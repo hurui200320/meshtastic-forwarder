@@ -1,10 +1,10 @@
-package info.skyblond.meshtastic.forwarder.client
+package info.skyblond.meshtastic.forwarder.lib
 
 import build.buf.gen.meshtastic.MeshPacket
-import info.skyblond.meshtastic.forwarder.client.http.DeviceInfoService
-import info.skyblond.meshtastic.forwarder.client.http.MFHttpClient
-import info.skyblond.meshtastic.forwarder.client.http.SendMessageService
-import info.skyblond.meshtastic.forwarder.client.ws.MFWebSocketClient
+import info.skyblond.meshtastic.forwarder.lib.http.DeviceInfoService
+import info.skyblond.meshtastic.forwarder.lib.http.MFHttpClient
+import info.skyblond.meshtastic.forwarder.lib.http.SendMessageService
+import info.skyblond.meshtastic.forwarder.lib.ws.MFWebSocketClient
 import kotlinx.coroutines.channels.ReceiveChannel
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit

@@ -1,4 +1,4 @@
-package info.skyblond.meshtastic.forwarder.client.ws
+package info.skyblond.meshtastic.forwarder.lib.ws
 
 import build.buf.gen.meshtastic.MeshPacket
 import kotlinx.coroutines.channels.BufferOverflow
@@ -12,8 +12,7 @@ import java.util.concurrent.CompletableFuture
 class MFWebSocketClient(
     okoHttpClient: OkHttpClient,
     serverBaseUrl: String,
-    enableTls: Boolean,
-//    token: String
+    enableTls: Boolean
 ) : AutoCloseable {
     private val websocket: WebSocket
 
@@ -36,7 +35,6 @@ class MFWebSocketClient(
         websocket = okoHttpClient.newWebSocket(
             Request.Builder()
                 .url("${if (enableTls) "wss" else "ws"}://$serverBaseUrl/ws/packet")
-//                .addHeader("Authorization", "Bearer $token")
                 .build(),
             meshPacketListener
         )

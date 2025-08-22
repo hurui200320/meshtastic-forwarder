@@ -7,7 +7,7 @@ name: Server docker image
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "master" ] # TODO: add dev branch in the future
     # Publish semver tags as releases.
     tags: [ 'v*.*.*' ]
   pull_request:

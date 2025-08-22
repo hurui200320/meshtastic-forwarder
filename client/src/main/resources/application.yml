@@ -1,0 +1,28 @@
+spring:
+  application:
+    name: meshtastic-forwarder-client
+# use a different port than the server for spring
+server:
+  port: 8081
+# expose health endpoint
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+# meshtastic config
+meshtastic:
+  client:
+    base-url: "127.0.0.1:8080"
+    token: "dev-token"
+    enable-tls: false
+# OpenAI config, will configure proxy if HTTP_PROXY is set (only support HTTP, no HTTPS yet).
+openai:
+  # default to google gemini (AI studio), use `OPENAI_BASEURL` to override
+  base-url: https://generativelanguage.googleapis.com/v1beta/openai/
+  # default read GEMINI_API_KEY from env var, use `OPENAI_APIKEY` to override
+  api-key: ${GEMINI_API_KEY}
+
+# enable debug reply on primary channel
+meshtastic.client.features.enabled-debug-reply-on-primary-channel: true
+meshtastic.client.features.enabled-gemini-on-private-chat: true

@@ -5,7 +5,7 @@ import build.buf.gen.meshtastic.MeshPacket
 import build.buf.gen.meshtastic.NodeInfo
 import build.buf.gen.meshtastic.PortNum
 import build.buf.gen.meshtastic.User
-import info.skyblond.meshtastic.forwarder.toBase64
+import info.skyblond.meshtastic.forwarder.common.toBase64
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex

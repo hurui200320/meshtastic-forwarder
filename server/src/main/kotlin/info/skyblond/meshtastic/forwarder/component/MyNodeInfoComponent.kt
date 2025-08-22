@@ -2,7 +2,7 @@ package info.skyblond.meshtastic.forwarder.component
 
 import build.buf.gen.meshtastic.FromRadio
 import build.buf.gen.meshtastic.MyNodeInfo
-import info.skyblond.meshtastic.forwarder.toHex
+import info.skyblond.meshtastic.forwarder.common.toHex
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex

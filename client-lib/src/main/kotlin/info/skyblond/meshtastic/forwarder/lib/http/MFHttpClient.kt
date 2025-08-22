@@ -1,4 +1,4 @@
-package info.skyblond.meshtastic.forwarder.client.http
+package info.skyblond.meshtastic.forwarder.lib.http
 
 import build.buf.gen.meshtastic.*
 import kotlinx.coroutines.Dispatchers
@@ -13,16 +13,11 @@ class MFHttpClient(
     private fun String.decodeBase64(): ByteArray =
         Base64.getDecoder().decode(this)
 
-
     fun getChannels(): List<Channel> = runBlocking(Dispatchers.IO) {
         deviceInfoService.getChannels()
             .map { Channel.parseFrom(it.decodeBase64()) }
     }
 
-    /**
-     * Map from [build.buf.gen.meshtastic.Config.PayloadVariantCase.getNumber] to
-     * base64 encoded [build.buf.gen.meshtastic.Config].
-     * */
     fun getConfigs(): Map<Int, Config> = runBlocking(Dispatchers.IO) {
         deviceInfoService.getConfigs()
             .mapValues { Config.parseFrom(it.value.decodeBase64()) }

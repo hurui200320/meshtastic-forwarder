@@ -4,8 +4,8 @@ import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.runApplication
 
 @SpringBootApplication
-class MeshtasticForwarderApplication
+class MeshtasticForwarderClient
 
 fun main(args: Array<String>) {
-    runApplication<MeshtasticForwarderApplication>(*args)
+    runApplication<MeshtasticForwarderClient>(*args)
 }

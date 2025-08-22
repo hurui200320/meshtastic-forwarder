@@ -1,4 +1,4 @@
-package info.skyblond.meshtastic.forwarder.client.ws
+package info.skyblond.meshtastic.forwarder.lib.ws
 
 @Suppress("CanBeParameter")
 class WebSocketClosedException(

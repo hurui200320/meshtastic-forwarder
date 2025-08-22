@@ -4,13 +4,11 @@ import build.buf.gen.meshtastic.ClientNotification
 import build.buf.gen.meshtastic.FromRadio
 import build.buf.gen.meshtastic.LogRecord
 import com.google.protobuf.GeneratedMessage
-import info.skyblond.meshtastic.forwarder.asTimestamp
+import info.skyblond.meshtastic.forwarder.common.asTimestamp
 import info.skyblond.meshtastic.forwarder.component.AbstractMeshtasticComponentConsumer
 import info.skyblond.meshtastic.forwarder.component.MeshtasticComponent
 import org.slf4j.LoggerFactory
-import org.slf4j.event.Level
 import org.springframework.stereotype.Service
-import kotlin.math.log
 
 /**
  * Consume [build.buf.gen.meshtastic.DeviceMetadata] messages and print log.

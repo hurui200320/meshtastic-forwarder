@@ -1,11 +1,11 @@
 package info.skyblond.meshtastic.forwarder.service
 
 import build.buf.gen.meshtastic.*
+import info.skyblond.meshtastic.forwarder.common.getSecurityConfig
 import info.skyblond.meshtastic.forwarder.component.ConfigStoreComponent
 import info.skyblond.meshtastic.forwarder.component.MeshtasticComponent
 import info.skyblond.meshtastic.forwarder.component.MyNodeInfoComponent
 import info.skyblond.meshtastic.forwarder.config.MeshtasticClientConfigProperties
-import info.skyblond.meshtastic.forwarder.getSecurityConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -17,7 +17,6 @@ import org.springframework.stereotype.Service
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
-import kotlin.math.min
 import kotlin.random.Random
 
 @Service

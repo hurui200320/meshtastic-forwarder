@@ -5,7 +5,7 @@ import com.google.protobuf.ByteString
 import info.skyblond.meshtastic.forwarder.api.client.MeshtasticClientApiReader
 import info.skyblond.meshtastic.forwarder.api.client.MeshtasticClientApiWriter
 import info.skyblond.meshtastic.forwarder.api.client.MeshtasticClientPort
-import info.skyblond.meshtastic.forwarder.toNodeIdIsBroadcast
+import info.skyblond.meshtastic.forwarder.common.toNodeIdIsBroadcast
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow

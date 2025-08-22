@@ -4,7 +4,7 @@ import com.fasterxml.jackson.core.JsonGenerator
 import com.fasterxml.jackson.databind.JsonSerializer
 import com.fasterxml.jackson.databind.SerializerProvider
 import com.google.protobuf.Message
-import info.skyblond.meshtastic.forwarder.toBase64
+import info.skyblond.meshtastic.forwarder.common.toBase64
 
 class ProtobufJsonSerializer : JsonSerializer<Message>() {
     override fun serialize(

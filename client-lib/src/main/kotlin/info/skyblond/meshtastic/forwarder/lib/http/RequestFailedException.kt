@@ -1,4 +1,4 @@
-package info.skyblond.meshtastic.forwarder.client.http
+package info.skyblond.meshtastic.forwarder.lib.http
 
 import retrofit2.Response
 

@@ -1,4 +1,4 @@
-package info.skyblond.meshtastic.forwarder.client.ws
+package info.skyblond.meshtastic.forwarder.lib.ws
 
 import build.buf.gen.meshtastic.MeshPacket
 import kotlinx.coroutines.Dispatchers
@@ -21,7 +21,7 @@ class MeshPacketWebSocketListener(
         }
     }
 
-    override fun onFailure(webSocket: WebSocket, t: Throwable, response: okhttp3.Response?) {
+    override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
         if (initialConnectFuture.isDone) {
             runBlocking(Dispatchers.IO) {
                 meshPacketChannel.close(cause = t)
