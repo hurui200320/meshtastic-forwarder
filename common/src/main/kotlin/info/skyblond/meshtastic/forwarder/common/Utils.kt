@@ -1,8 +1,6 @@
 package info.skyblond.meshtastic.forwarder.common
 
 import build.buf.gen.meshtastic.Config
-import build.buf.gen.meshtastic.MeshPacket
-import build.buf.gen.meshtastic.PortNum
 import com.google.protobuf.ByteString
 import java.time.Instant
 import java.time.ZonedDateTime

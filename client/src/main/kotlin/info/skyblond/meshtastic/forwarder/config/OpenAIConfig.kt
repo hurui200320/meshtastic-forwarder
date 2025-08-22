@@ -1,7 +1,5 @@
 package info.skyblond.meshtastic.forwarder.config
 
-import com.openai.client.OpenAIClient
-import com.openai.client.okhttp.OpenAIOkHttpClient
 import com.openai.springboot.OpenAIClientCustomizer
 import org.slf4j.LoggerFactory
 import org.springframework.context.annotation.Bean

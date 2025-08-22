@@ -48,10 +48,6 @@ class MeshtasticComponent(
                 writer = MeshtasticClientApiWriter(clientPort),
                 readerMessagesLoopJob = processMessagesFromReader(reader)
             )
-            // send want config id as the first message
-            ensureSendMessage(
-                ToRadio.newBuilder().setWantConfigId(Random.nextInt()).build()
-            )
         }
         logger.info("Connected to meshtastic device")
     }

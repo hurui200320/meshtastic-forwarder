@@ -25,6 +25,12 @@ interface DeviceInfoService {
     suspend fun getMyNodeInfo(): String
 
     /**
+     * Base64 encoded [build.buf.gen.meshtastic.User].
+     * */
+    @GET("/device/myUserInfo")
+    suspend fun getMyUserInfo(): String
+
+    /**
      * Generate a unique packet ID that has not been used yet.
      * */
     @GET("/device/generateNewPacketId")

@@ -3,8 +3,8 @@ package info.skyblond.meshtastic.forwarder.component
 import build.buf.gen.meshtastic.*
 import com.google.protobuf.ByteString
 import info.skyblond.meshtastic.forwarder.common.MESH_PACKET_TO_BROADCAST_NODE_ID
-import info.skyblond.meshtastic.forwarder.lib.http.MFHttpClient
 import info.skyblond.meshtastic.forwarder.common.toNodeIdIsBroadcast
+import info.skyblond.meshtastic.forwarder.lib.http.MFHttpClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -38,6 +38,11 @@ abstract class AbstractComponent(
     protected suspend fun myNodeInfo(): MyNodeInfo =
         withContext(Dispatchers.IO) {
             mfHttpClient.getMyNodeInfo()
+        }
+
+    protected suspend fun myUserInfo(): User =
+        withContext(Dispatchers.IO) {
+            mfHttpClient.getMyUserInfo()
         }
 
     private inline fun <reified T> Map<Int, Config>.getConfig(

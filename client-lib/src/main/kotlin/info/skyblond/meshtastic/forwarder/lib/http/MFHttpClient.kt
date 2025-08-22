@@ -27,6 +27,10 @@ class MFHttpClient(
         MyNodeInfo.parseFrom(deviceInfoService.getMyNodeInfo().decodeBase64())
     }
 
+    fun getMyUserInfo(): User = runBlocking(Dispatchers.IO) {
+        User.parseFrom(deviceInfoService.getMyUserInfo().decodeBase64())
+    }
+
     /**
      * Generate a unique packet ID that has not been used yet.
      * */

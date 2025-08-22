@@ -42,6 +42,7 @@ class SecurityConfig {
             }
             .authorizeHttpRequests {
                 it
+                    .requestMatchers("/actuator/**").permitAll()
                     .requestMatchers("/ws/packet").hasAuthority(AUTHORITY_READ_MESH_PACKET)
                     .requestMatchers("/device/**").hasAuthority(AUTHORITY_READ_DEVICE_INFO)
                     .requestMatchers("/send/meshPacket").hasAuthority(AUTHORITY_SEND_MESH_PACKET)

@@ -35,10 +35,17 @@ class InfoRefreshService(
     init {
         executor.scheduleAtFixedRate(
             {
-                sendWantConfig()
-                sendSetTime()
+                runCatching {
+                    val configId = sendWantConfig()
+                    while (configIdToTimeMap[configId] != null) {
+                        Thread.sleep(100)
+                    }
+                    sendSetTime()
+                    sendGetOwner()
+                }.onFailure { logger.error("Failed to refresh info", it) }
+                    .onSuccess { logger.info("Info refreshed") }
             },
-            configProperties.configRefreshMinutes,
+            0,
             configProperties.configRefreshMinutes,
             TimeUnit.MINUTES
         )
@@ -46,8 +53,10 @@ class InfoRefreshService(
             if (message.payloadVariantCase != FromRadio.PayloadVariantCase.CONFIG_COMPLETE_ID)
                 return@onEach
             val configCompleteId = message.configCompleteId
+            val endtime = System.currentTimeMillis()
             val startTime = configIdToTimeMap[configCompleteId] ?: return@onEach
-            val duration = System.currentTimeMillis() - startTime
+            configIdToTimeMap.remove(configCompleteId)
+            val duration = endtime - startTime
             val minute = duration / 1000 / 60.0
             if (minute >= configProperties.configRefreshMinutes) {
                 logger.warn(
@@ -62,7 +71,7 @@ class InfoRefreshService(
 
     private val configIdToTimeMap = ConcurrentHashMap<Int, Long>()
 
-    private fun sendWantConfig() {
+    private fun sendWantConfig(): Int {
         logger.info("Sending want_config to fresh info")
         val id = Random.nextInt()
         meshtasticComponent.sendMessage(
@@ -71,7 +80,8 @@ class InfoRefreshService(
                 .build()
         ).thenAccept {
             configIdToTimeMap[id] = System.currentTimeMillis()
-        }
+        }.get()
+        return id
     }
 
     private fun sendSetTime() {
@@ -94,7 +104,31 @@ class InfoRefreshService(
                         .toByteString()
                 )
                 .build()
-        )
+        ).get()
+    }
+
+    private fun sendGetOwner() {
+        val pubKey = configStoreComponent.configsFlow.value.getSecurityConfig()?.publicKey
+            ?: return
+        logger.info("Sending get owner")
+        meshtasticComponent.sendDataMeshPacket(
+            from = myNodeInfoComponent.myNodeInfoFlow.value.myNodeNum,
+            to = myNodeInfoComponent.myNodeInfoFlow.value.myNodeNum,
+            wantAck = false,
+            hopLimit = 0,
+            publicKey = pubKey,
+            pkiEncrypted = true,
+            data = Data.newBuilder()
+                .setPortnum(PortNum.ADMIN_APP)
+                .setWantResponse(true)
+                .setPayload(
+                    AdminMessage.newBuilder()
+                        .setGetOwnerRequest(true)
+                        .build()
+                        .toByteString()
+                )
+                .build()
+        ).get()
     }
 
     override fun close() {

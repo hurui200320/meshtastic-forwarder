@@ -13,8 +13,11 @@ management:
 # meshtastic config
 meshtastic:
   client:
-    base-url: "127.0.0.1:8080"
-    token: "dev-token"
+    # `MESHTASTIC_CLIENT_BASEURL` env var overrides this
+    base-url: 127.0.0.1:8080
+    # `MESHTASTIC_CLIENT_TOKEN` env var overrides this
+    token: dev-token
+    # `MESHTASTIC_CLIENT_ENABLETLS` env var overrides this
     enable-tls: false
 # OpenAI config, will configure proxy if HTTP_PROXY is set (only support HTTP, no HTTPS yet).
 openai:
@@ -24,5 +27,8 @@ openai:
   api-key: ${GEMINI_API_KEY}
 
 # enable debug reply on primary channel
-meshtastic.client.features.enabled-debug-reply-on-primary-channel: true
-meshtastic.client.features.enabled-gemini-on-private-chat: true
+# MESHTASTIC_CLIENT_FEATURES_ENABLEDEBUGREPLYONPRIMARYCHANNEL
+meshtastic.client.features.enable-debug-reply-on-primary-channel: true
+# enable gemini on private chat
+# MESHTASTIC_CLIENT_FEATURES_ENABLEGEMINIONPRIVATECHAT
+meshtastic.client.features.enable-gemini-on-private-chat: true
