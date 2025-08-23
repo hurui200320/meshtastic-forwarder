@@ -17,7 +17,9 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:5.1.0")
     implementation(project(":client-lib"))
 
-    implementation("com.openai:openai-java-spring-boot-starter:3.1.2")
+    implementation("com.google.genai:google-genai:1.14.0")
+    implementation("com.github.victools:jsonschema-generator:4.38.0")
+    implementation("com.github.victools:jsonschema-module-jackson:4.38.0")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")

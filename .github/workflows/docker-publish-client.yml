@@ -1,4 +1,4 @@
-name: Server docker image
+name: Client docker image
 
 on:
   push:
@@ -12,7 +12,7 @@ env:
   # Use docker.io for Docker Hub if empty
   REGISTRY: ghcr.io
   # github.repository as <account>/<repo>
-  IMAGE_NAME: ${{ github.repository }}-server
+  IMAGE_NAME: ${{ github.repository }}-client
 
 
 jobs:

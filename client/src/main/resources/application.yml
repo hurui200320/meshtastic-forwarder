@@ -19,12 +19,6 @@ meshtastic:
     token: dev-token
     # `MESHTASTIC_CLIENT_ENABLETLS` env var overrides this
     enable-tls: false
-# OpenAI config, will configure proxy if HTTP_PROXY is set (only support HTTP, no HTTPS yet).
-openai:
-  # default to google gemini (AI studio), use `OPENAI_BASEURL` to override
-  base-url: https://generativelanguage.googleapis.com/v1beta/openai/
-  # default read GEMINI_API_KEY from env var, use `OPENAI_APIKEY` to override
-  api-key: ${GEMINI_API_KEY}
 
 # enable debug reply on primary channel
 # MESHTASTIC_CLIENT_FEATURES_ENABLEDEBUGREPLYONPRIMARYCHANNEL

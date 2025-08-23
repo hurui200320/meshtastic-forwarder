@@ -10,7 +10,13 @@ RUN gradle clean :server:bootJar --no-daemon
 
 # Run stage
 FROM azul/zulu-openjdk:21
+
+# install curl for health check
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 COPY --from=builder /code/server/build/libs/*.jar app.jar
 EXPOSE 8080
+HEALTHCHECK CMD curl -fs http://localhost:8080/actuator/health
+
 ENTRYPOINT ["java", "-jar", "app.jar"]
