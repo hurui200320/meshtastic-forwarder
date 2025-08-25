@@ -2,7 +2,6 @@ package info.skyblond.meshtastic.forwarder.component
 
 import build.buf.gen.meshtastic.MeshPacket
 import com.fasterxml.jackson.annotation.JsonProperty
-import com.fasterxml.jackson.databind.ObjectMapper
 import com.google.genai.Chat
 import com.google.genai.Client
 import com.google.genai.types.*
@@ -10,8 +9,6 @@ import info.skyblond.meshtastic.forwarder.common.isNotBroadcast
 import info.skyblond.meshtastic.forwarder.common.isNotEmojiReaction
 import info.skyblond.meshtastic.forwarder.common.isTextMessage
 import info.skyblond.meshtastic.forwarder.lib.http.MFHttpClient
-import info.skyblond.meshtastic.forwarder.utils.parseJsonReply
-import info.skyblond.meshtastic.forwarder.utils.responseSchema
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
@@ -26,8 +23,7 @@ import java.util.concurrent.ConcurrentHashMap
 class GeminiOnPrivateChatComponent(
     meshPacketBus: MeshPacketBus,
     mfHttpClient: MFHttpClient,
-    private val gemini: Client,
-    private val objectMapper: ObjectMapper
+    private val gemini: Client
 ) : AbstractComponent(meshPacketBus, mfHttpClient) {
     private val logger = LoggerFactory.getLogger(GeminiOnPrivateChatComponent::class.java)
     private val sessionMap =
@@ -40,20 +36,13 @@ class GeminiOnPrivateChatComponent(
     override suspend fun filter(packet: MeshPacket): Boolean =
         packet.isTextMessage() && packet.isNotBroadcast() && packet.isNotEmojiReaction()
 
-    class PrivateChatResponse(
-        @field:JsonProperty(required = true)
-        val shouldEndConversation: Boolean,
-        @field:JsonProperty(required = true)
-        val response: String
-    )
-
     private fun createNewParameterBuilder(userNodeNum: Int): Chat {
         val myNodeInfo = runBlocking(Dispatchers.IO) { myNodeInfo() }
         val myUserInfo = runBlocking(Dispatchers.IO) { myUserInfo() }
         val userNodeInfo = runBlocking(Dispatchers.IO) {
             nodes().filter { it.num == userNodeNum }.first()
         }
-
+        // TODO: provide a tool with checking response too long?
         val config = GenerateContentConfig.builder()
             .systemInstruction(
                 Content.fromParts(
@@ -84,12 +73,11 @@ class GeminiOnPrivateChatComponent(
                             |
                             |Behavioral rules:
                             |+ Reply in the same language as the user.
+                            |+ Reply in plain text, no markdown, no html, just simple plain text.
                             |+ If the user's request is complicated and you have more than 140 character to say, slice your content and offer user an option to continue.
                             |+ If you have finished your response, then you should not repeat yourself, instead, you should explicitly ask user for further instructions.
                             |+ LoRa devices are not reliable amd message might be lost. If you don't understand what user means, you should ask the user to repeat or clarify the question or instruction.
-                            |+ Once you fulfilled user's request, you should ask if user has any further request and remain passive.
-                            |+ If user has no further request, you should confirm with user if it's ok to end the conversation.
-                            |+ To end the conversation, set `shouldEndConversation` to `true`, so the backend will automatically close the conversation and start a new one if user requested.
+                            |+ Once you fulfilled user's request, you should tell user if there is no further request, they can end the conversation by sending a `/end` command.
                             |
                             |You must adhere to these rules for all subsequent user queries.
                             |
@@ -123,7 +111,14 @@ class GeminiOnPrivateChatComponent(
                     )
                 )
             )
-            .responseSchema<PrivateChatResponse>()
+            // tool with json response is not supported
+//            .responseSchema<PrivateChatResponse>()
+            .tools(
+                // Google search, first 1500 requests per day is free
+                Tool.builder()
+                    .googleSearch(GoogleSearch.builder().build())
+                    .build()
+            )
             .thinkingConfig(
                 ThinkingConfig.builder()
                     // dynamicThinking
@@ -133,15 +128,27 @@ class GeminiOnPrivateChatComponent(
                 listOf(
                     SafetySetting.builder()
                         .category(HarmCategory.Known.HARM_CATEGORY_SEXUALLY_EXPLICIT)
-                        .threshold(HarmBlockThreshold.Known.BLOCK_LOW_AND_ABOVE).build()
+                        .threshold(HarmBlockThreshold.Known.OFF).build()
                 )
             )
             .maxOutputTokens(5000)
             .build()
 
-        // TODO: function call?
-
         return gemini.chats.create("gemini-2.5-pro", config)
+    }
+
+    private fun handleCommand(textMessage: String, fromNodeNum: Int): Boolean {
+        when (textMessage.lowercase().trim()) {
+            "/end" -> {
+                logger.info(
+                    "Gemini private chat conversation ended for node #{}",
+                    fromNodeNum.toUInt()
+                )
+                sessionMap.remove(fromNodeNum)
+                return true
+            }
+        }
+        return false
     }
 
     override suspend fun consume(packet: MeshPacket) {
@@ -152,18 +159,21 @@ class GeminiOnPrivateChatComponent(
             fromNodeNum.toUInt(), packet.id.toUInt(), textMessage
         )
 
+        if (handleCommand(textMessage, fromNodeNum)) {
+            return
+        }
+
         val session = sessionMap.getOrPut(fromNodeNum) { createNewParameterBuilder(fromNodeNum) }
         val response = runCatching {
             session.sendMessage(textMessage)
-                .parseJsonReply<PrivateChatResponse>(objectMapper)
+                .also { it.checkFinishReason() }
+                .text() ?: "(Gemini reply is empty)"
+//                .parseJsonReply<PrivateChatResponse>(objectMapper)
         }.getOrElse {
             logger.error("Failed to get reply from gemini", it)
-            PrivateChatResponse(
-                shouldEndConversation = false,
-                response = "Failed to call gemini, your latest input will be ignored. Please retry later."
-            )
+            "(Failed to call gemini, your latest input will be ignored. Please retry later.)"
         }
-        var replyText = response.response.trim()
+        var replyText = response.trim()
 
         logger.info(
             "Gemini reply for node #{} message #{}: length={}, size={}B, content={}",
@@ -196,12 +206,6 @@ class GeminiOnPrivateChatComponent(
                     replyText.length
                 )
             }
-        }
-
-
-        if (response.shouldEndConversation) {
-            logger.info("Gemini private chat conversation ended for node #{}", fromNodeNum.toUInt())
-            sessionMap.remove(fromNodeNum)
         }
     }
 
