@@ -17,7 +17,9 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:5.1.0")
     implementation(project(":client-lib"))
 
-    implementation("com.google.genai:google-genai:1.14.0")
+    implementation("com.google.genai:google-genai:1.14.0") {
+        exclude("commons-logging", "commons-logging")
+    }
     implementation("com.github.victools:jsonschema-generator:4.38.0")
     implementation("com.github.victools:jsonschema-module-jackson:4.38.0")
 

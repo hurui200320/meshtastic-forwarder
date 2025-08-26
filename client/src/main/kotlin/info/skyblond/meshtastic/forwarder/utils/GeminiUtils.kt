@@ -28,3 +28,10 @@ inline fun <reified T> GenerateContentResponse.parseJsonReply(objectMapper: Obje
     this.checkFinishReason()
     return objectMapper.readValue(this.text(), T::class.java)
 }
+
+fun GenerateContentResponse.thought(): String? = this.parts()
+    ?.filter { it.thought().orElse(false) }
+    ?.mapNotNull { it.text().orElse(null) }
+    ?.joinToString("\n")
+    ?.trim()
+

@@ -11,6 +11,8 @@ import info.skyblond.meshtastic.forwarder.common.isTextMessage
 import info.skyblond.meshtastic.forwarder.lib.http.MFHttpClient
 import info.skyblond.meshtastic.forwarder.utils.parseJsonReply
 import info.skyblond.meshtastic.forwarder.utils.responseSchema
+import info.skyblond.meshtastic.forwarder.utils.sliceMessage
+import info.skyblond.meshtastic.forwarder.utils.thought
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.firstOrNull
@@ -84,7 +86,7 @@ class GeminiOnPublicChatComponent(
                             |and ask how they want to handle this. Once the user confirm to have the message sliced,
                             |you should reply all your content in one go and let the backend do the auto slicing.
                             |
-                            |Note: even with auto slicing, there is a max output token limit of 5000,
+                            |Note: even with auto slicing, there is a max output token limit of 1000,
                             |also, the longer the response, the more likely the user will lose a part of it.
                             |Try your best to keep the response short.
                             |
@@ -162,7 +164,9 @@ class GeminiOnPublicChatComponent(
             .thinkingConfig(
                 ThinkingConfig.builder()
                     // dynamicThinking
-                    .thinkingBudget(-1).build()
+                    .thinkingBudget(-1)
+                    .includeThoughts(true)
+                    .build()
             )
             .safetySettings(
                 listOf(
@@ -171,17 +175,20 @@ class GeminiOnPublicChatComponent(
                         .threshold(HarmBlockThreshold.Known.OFF).build()
                 )
             )
-            .maxOutputTokens(5000)
+            .temperature(0.3f)
+            .topP(0.95f)
+            .topK(30f)
+            .maxOutputTokens(1000)
             .build()
 
-        return gemini.chats.create("gemini-2.5-pro", config)
+        return gemini.chats.create("gemini-2.5-flash", config)
     }
 
     override suspend fun consume(packet: MeshPacket) {
         val textMessage = packet.decoded.payload.toStringUtf8()
         val fromNodeNum = packet.from
         logger.info(
-            "Received message for gemini public chat: channel={}, from={}, messageId={}, content={}",
+            "Received message for gemini public chat: channel={}, from={}, messageId={}, content=\n{}",
             packet.channel, fromNodeNum.toUInt(), packet.id.toUInt(), textMessage
         )
 
@@ -203,7 +210,14 @@ class GeminiOnPublicChatComponent(
                         "deviceModel" to userInfo?.user?.hwModel?.name,
                     )
                 ) + "\n----\n" + textMessage
-            ).parseJsonReply<PublicChatResponse>(objectMapper)
+            ).also { resp ->
+                resp.thought()?.let {
+                    logger.info(
+                        "Gemini private chat thought for message #{}:\n{}",
+                        packet.id.toUInt(), it
+                    )
+                }
+            }.parseJsonReply<PublicChatResponse>(objectMapper)
         }.getOrElse {
             logger.error("Failed to get reply from gemini", it)
             PublicChatResponse(
@@ -211,42 +225,40 @@ class GeminiOnPublicChatComponent(
                 "(Failed to call gemini, your latest input will be ignored. Please retry later.)"
             )
         }
-        var replyText = response.replyContent?.trim() ?: "(Gemini gives empty response)"
+        val replyText = response.replyContent?.trim() ?: "(Gemini gives empty response)"
 
         logger.info(
             "Gemini reply for channel #{} message #{}: reply={}, length={}, size={}B, content={}",
-            packet.channel,
-            packet.id.toUInt(),
-            response.shouldReply,
-            replyText.length,
-            replyText.toByteArray().size,
-            replyText
+            packet.channel, packet.id.toUInt(), response.shouldReply,
+            replyText.length, replyText.toByteArray().size, replyText
         )
 
-        if (response.shouldReply) {
-            while (replyText.isNotEmpty()) {
-                val subLength = (1..replyText.length).findLast {
-                    replyText.take(it).toByteArray().size <= 200
-                } ?: 1
-                val text = replyText.take(subLength)
-                replyText = replyText.drop(subLength)
-                replyTextMessage(packet, text).onFailure {
-                    logger.error(
-                        "Failed to reply gemini public chat response for node #{} message #{} ({} chars remain)",
-                        fromNodeNum.toUInt(),
-                        packet.id.toUInt(),
-                        replyText.length,
-                        it
-                    )
-                    replyText = ""
-                }.onSuccess {
-                    logger.info(
-                        "Gemini public chat delivered to channel #{} message #{} ({} chars remain)",
-                        packet.channel,
-                        packet.id.toUInt(),
-                        replyText.length
-                    )
-                }
+        val messages = sliceMessage(replyText).toList()
+        for (i in messages.indices) {
+            val m = messages[i]
+            val r = replyTextMessage(packet, m)
+            if (r.isSuccess) {
+                logger.info(
+                    "Gemini public chat delivered to channel #{} message #{} ({}/{})",
+                    packet.channel, packet.id.toUInt(), i + 1, messages.size,
+                )
+            } else {
+                logger.error(
+                    "Failed to reply gemini public chat response for channel {} message #{} ({}/{})",
+                    packet.channel, packet.id.toUInt(), i + 1, messages.size,
+                )
+                break
+            }
+        }
+
+        var failed = false
+        sliceMessage(replyText).forEach { m ->
+            if (failed) return@forEach
+            replyTextMessage(packet, m).onFailure {
+
+                failed = true
+            }.onSuccess {
+
             }
         }
     }

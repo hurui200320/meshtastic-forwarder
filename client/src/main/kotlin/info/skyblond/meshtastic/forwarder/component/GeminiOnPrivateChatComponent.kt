@@ -1,7 +1,6 @@
 package info.skyblond.meshtastic.forwarder.component
 
 import build.buf.gen.meshtastic.MeshPacket
-import com.fasterxml.jackson.annotation.JsonProperty
 import com.google.genai.Chat
 import com.google.genai.Client
 import com.google.genai.types.*
@@ -9,6 +8,8 @@ import info.skyblond.meshtastic.forwarder.common.isNotBroadcast
 import info.skyblond.meshtastic.forwarder.common.isNotEmojiReaction
 import info.skyblond.meshtastic.forwarder.common.isTextMessage
 import info.skyblond.meshtastic.forwarder.lib.http.MFHttpClient
+import info.skyblond.meshtastic.forwarder.utils.sliceMessage
+import info.skyblond.meshtastic.forwarder.utils.thought
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
@@ -42,7 +43,7 @@ class GeminiOnPrivateChatComponent(
         val userNodeInfo = runBlocking(Dispatchers.IO) {
             nodes().filter { it.num == userNodeNum }.first()
         }
-        // TODO: provide a tool with checking response too long?
+
         val config = GenerateContentConfig.builder()
             .systemInstruction(
                 Content.fromParts(
@@ -111,18 +112,19 @@ class GeminiOnPrivateChatComponent(
                     )
                 )
             )
-            // tool with json response is not supported
-//            .responseSchema<PrivateChatResponse>()
             .tools(
                 // Google search, first 1500 requests per day is free
                 Tool.builder()
                     .googleSearch(GoogleSearch.builder().build())
-                    .build()
+                    .build(),
+                // you can only use one tool at a time, either google search or tool calling.
             )
             .thinkingConfig(
                 ThinkingConfig.builder()
                     // dynamicThinking
-                    .thinkingBudget(-1).build()
+                    .thinkingBudget(-1)
+                    .includeThoughts(true)
+                    .build()
             )
             .safetySettings(
                 listOf(
@@ -131,6 +133,9 @@ class GeminiOnPrivateChatComponent(
                         .threshold(HarmBlockThreshold.Known.OFF).build()
                 )
             )
+            .temperature(0.8f)
+            .topP(0.95f)
+            .topK(0f)
             .maxOutputTokens(5000)
             .build()
 
@@ -167,44 +172,43 @@ class GeminiOnPrivateChatComponent(
         val response = runCatching {
             session.sendMessage(textMessage)
                 .also { it.checkFinishReason() }
+                .also { resp ->
+                    resp.thought()?.let {
+                        logger.info(
+                            "Gemini private chat thought for message #{}:\n{}",
+                            packet.id.toUInt(), it
+                        )
+                    }
+                }
                 .text() ?: "(Gemini reply is empty)"
-//                .parseJsonReply<PrivateChatResponse>(objectMapper)
         }.getOrElse {
             logger.error("Failed to get reply from gemini", it)
             "(Failed to call gemini, your latest input will be ignored. Please retry later.)"
         }
-        var replyText = response.trim()
+        val replyText = response.trim()
 
         logger.info(
-            "Gemini reply for node #{} message #{}: length={}, size={}B, content={}",
-            fromNodeNum.toUInt(),
-            packet.id.toUInt(),
-            replyText.length,
-            replyText.toByteArray().size,
+            "Gemini reply for node #{} message #{}: length={}, size={}B, content=\n{}",
+            fromNodeNum.toUInt(), packet.id.toUInt(),
+            replyText.length, replyText.toByteArray().size,
             replyText
         )
 
-        while (replyText.isNotEmpty()) {
-            val subLength =
-                (1..replyText.length).findLast { replyText.take(it).toByteArray().size <= 200 } ?: 1
-            val text = replyText.take(subLength)
-            replyText = replyText.drop(subLength)
-            replyTextMessage(packet, text).onFailure {
-                logger.error(
-                    "Failed to reply gemini private chat response for node #{} message #{} ({} chars remain)",
-                    fromNodeNum.toUInt(),
-                    packet.id.toUInt(),
-                    replyText.length,
-                    it
-                )
-                replyText = ""
-            }.onSuccess {
+        val messages = sliceMessage(replyText).toList()
+        for (i in messages.indices) {
+            val m = messages[i]
+            val r = replyTextMessage(packet, m)
+            if (r.isSuccess) {
                 logger.info(
-                    "Gemini private chat response delivered to node #{} message #{} ({} chars remain)",
-                    fromNodeNum.toUInt(),
-                    packet.id.toUInt(),
-                    replyText.length
+                    "Gemini private chat response delivered to node #{} message #{} ({}/{})",
+                    fromNodeNum.toUInt(), packet.id.toUInt(), i + 1, messages.size,
                 )
+            } else {
+                logger.error(
+                    "Failed to reply gemini private chat response for node #{} message #{} ({}/{})",
+                    fromNodeNum.toUInt(), packet.id.toUInt(), i + 1, messages.size,
+                )
+                break
             }
         }
     }
