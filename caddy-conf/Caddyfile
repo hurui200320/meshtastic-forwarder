@@ -1,0 +1,8 @@
+#Caddyfile
+
+:80 {
+    reverse_proxy https://generativelanguage.googleapis.com {
+        transport http {
+        }
+    }
+}

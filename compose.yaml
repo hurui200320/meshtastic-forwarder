@@ -1,0 +1,68 @@
+name: meshtastic-forwarder
+services:
+  # This is the server that expose meshtastic serial interface to web.
+  # Deploy this to device connected to the meshtastic node.
+  # My setup: a spare Raspberry Pi 5 connected with Wi-Fi
+  server:
+    image: ghcr.io/hurui200320/meshtastic-forwarder-server:master
+    build:
+      context: .
+      dockerfile: mf-server.Dockerfile
+    # for dev, change this to build
+    pull_policy: always
+    environment:
+      - MESHTASTIC_SERVER_RWTOKENS=dev-token
+      # should match the device below
+      - MESHTASTIC_CLIENT_PORTURI=serial:///dev/ttyACM0
+    devices:
+      - /dev/ttyACM0
+    restart: always
+
+  # This is the reverse proxy for gemini.
+  # The gemini sdk itself doesn't support proxy setting,
+  # thus we need caddy to send request to gemini api backend
+  # while using our proxy.
+  gemini-proxy:
+    image: caddy:2
+    volumes:
+      # the `Caddyfile` lives here
+      - "./caddy-conf:/etc/caddy"
+      - "caddy-data:/data"
+    environment:
+      # only the HTTP_PROXY works, no others like HTTPS_PROXY
+      - HTTP_PROXY=http://10.233.1.8:2080
+    restart: always
+
+  client:
+    image: ghcr.io/hurui200320/meshtastic-forwarder-client:master
+    build:
+      context: .
+      dockerfile: mf-client.Dockerfile
+    # for dev, change this to build
+    pull_policy: always
+    environment:
+      # reverse proxy
+      - GOOGLE_GEMINI_BASE_URL=http://gemini-proxy
+      - MESHTASTIC_CLIENT_BASEURL=server:8080
+      - MESHTASTIC_CLIENT_TOKEN=dev-token
+      - MESHTASTIC_CLIENT_ENABLETLS=false
+      # enable debug reply on primary channel
+      - MESHTASTIC_CLIENT_FEATURES_ENABLEDEBUGREPLYONPRIMARYCHANNEL=true
+      # enable gemini on private chat (dm)
+      - MESHTASTIC_CLIENT_FEATURES_ENABLEGEMINIONPRIVATECHAT=true
+      # enable gemini on public chat (channel)
+      - MESHTASTIC_CLIENT_FEATURES_ENABLEGEMINIONPUBLICCHAT=true
+      # channel indexes for gemini public chat, comma separated integer values
+      - MESHTASTIC_CLIENT_FEATURES_PUBLICGEMINIENABLEDCHANNELINDEXES=0
+    # Read the following env from secrets file:
+    # + GOOGLE_API_KEY, required for gemini api usage
+    env_file: secrets.env
+    depends_on:
+      server:
+        condition: service_healthy
+      gemini-proxy:
+        condition: service_started
+    restart: always
+
+volumes:
+  caddy-data:

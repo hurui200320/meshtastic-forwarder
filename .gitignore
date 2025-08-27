@@ -38,3 +38,6 @@ out/
 
 ### Kotlin ###
 .kotlin
+
+# secrets env files
+secrets.env
