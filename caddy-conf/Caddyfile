@@ -3,6 +3,9 @@
 :80 {
     reverse_proxy https://generativelanguage.googleapis.com {
         transport http {
+            forward_proxy_url {$HTTP_PROXY}
         }
+        # this host header is critial, otherwise google will return 404
+        header_up Host {upstream_hostport}
     }
 }
