@@ -17,6 +17,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
@@ -35,8 +37,8 @@ class GeminiOnPublicChatComponent(
     private val objectMapper: ObjectMapper
 ) : AbstractComponent(meshPacketBus, mfHttpClient) {
     private val logger = LoggerFactory.getLogger(GeminiOnPublicChatComponent::class.java)
-    private val sessionMap =
-        ConcurrentHashMap<Int, Chat>()
+    private val historyMap = ConcurrentHashMap<Int, List<Content>>()
+    private val lockMap = ConcurrentHashMap<Int, Mutex>()
 
     private val enabledChannelIndexes = enabledChannelIndexesString.split(",")
         .map { it.trim().toInt() }
@@ -57,7 +59,7 @@ class GeminiOnPublicChatComponent(
         val replyContent: String?
     )
 
-    private fun createNewParameterBuilder(channelIndex: Int): Chat {
+    private fun createChatSession(channelIndex: Int): Chat {
         val myNodeInfo = runBlocking(Dispatchers.IO) { myNodeInfo() }
         val myUserInfo = runBlocking(Dispatchers.IO) { myUserInfo() }
         val channelInfo = runBlocking(Dispatchers.IO) { channels()[channelIndex] }
@@ -185,85 +187,94 @@ class GeminiOnPublicChatComponent(
     }
 
     override suspend fun consume(packet: MeshPacket) {
-        val textMessage = packet.decoded.payload.toStringUtf8()
-        val fromNodeNum = packet.from
-        logger.info(
-            "Received message for gemini public chat: channel={}, from={}, messageId={}, content=\n{}",
-            packet.channel, fromNodeNum.toUInt(), packet.id.toUInt(), textMessage
-        )
-
-        val userInfo = withContext(Dispatchers.IO) {
-            nodes().filter { it.num == fromNodeNum }.firstOrNull()
-        }
-
-        val session = sessionMap.getOrPut(packet.channel) {
-            createNewParameterBuilder(packet.channel)
-        }
-        val response = runCatching {
-            session.sendMessage(
-                objectMapper.writeValueAsString(
-                    mapOf(
-                        "nodeNum" to fromNodeNum,
-                        "userId" to userInfo?.user?.id,
-                        "longUsername" to userInfo?.user?.longName,
-                        "shortUsername" to userInfo?.user?.shortName,
-                        "deviceModel" to userInfo?.user?.hwModel?.name,
-                    )
-                ) + "\n----\n" + textMessage
-            ).also { resp ->
-                resp.thought()?.let {
-                    logger.info(
-                        "Gemini private chat thought for message #{}:\n{}",
-                        packet.id.toUInt(), it
-                    )
-                }
-            }.parseJsonReply<PublicChatResponse>(objectMapper)
-        }.getOrElse {
-            logger.error("Failed to get reply from gemini", it)
-            PublicChatResponse(
-                true,
-                "(Failed to call gemini, your latest input will be ignored. Please retry later.)"
+        lockMap.getOrPut(packet.channel) { Mutex() }.withLock {
+            val textMessage = packet.decoded.payload.toStringUtf8()
+            val fromNodeNum = packet.from
+            logger.info(
+                "Received message for gemini public chat: channel={}, from={}, messageId={}, content=\n{}",
+                packet.channel, fromNodeNum.toUInt(), packet.id.toUInt(), textMessage
             )
-        }
-        val replyText = response.replyContent?.trim() ?: "(Gemini gives empty response)"
 
-        logger.info(
-            "Gemini reply for channel #{} message #{}: reply={}, length={}, size={}B, content={}",
-            packet.channel, packet.id.toUInt(), response.shouldReply,
-            replyText.length, replyText.toByteArray().size, replyText
-        )
-
-        val messages = sliceMessage(replyText).toList()
-        for (i in messages.indices) {
-            val m = messages[i]
-            val r = replyTextMessage(packet, m)
-            if (r.isSuccess) {
-                logger.info(
-                    "Gemini public chat delivered to channel #{} message #{} ({}/{})",
-                    packet.channel, packet.id.toUInt(), i + 1, messages.size,
-                )
-            } else {
-                logger.error(
-                    "Failed to reply gemini public chat response for channel {} message #{} ({}/{})",
-                    packet.channel, packet.id.toUInt(), i + 1, messages.size,
-                )
-                break
+            val userInfo = withContext(Dispatchers.IO) {
+                nodes().filter { it.num == fromNodeNum }.firstOrNull()
             }
-        }
 
-        var failed = false
-        sliceMessage(replyText).forEach { m ->
-            if (failed) return@forEach
-            replyTextMessage(packet, m).onFailure {
+            val history = historyMap.getOrPut(packet.channel) { emptyList() }
+            val session = createChatSession(packet.channel)
 
-                failed = true
-            }.onSuccess {
+            val response = runCatching {
+                // TODO: create an OpenAI-ish chat, which allows manual management of chat contents
+                session.sendMessage(
+                    // take the last 1000 messages so we don't run out of context window
+                    history.takeLast(1000) + Content.fromParts(
+                        Part.fromText(
+                            objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(
+                                mapOf(
+                                    "nodeNum" to fromNodeNum,
+                                    "userId" to userInfo?.user?.id,
+                                    "longUsername" to userInfo?.user?.longName,
+                                    "shortUsername" to userInfo?.user?.shortName,
+                                    "deviceModel" to userInfo?.user?.hwModel?.name,
+                                )
+                            ) + "\n----\n" + textMessage
+                        )
+                    )
+                ).also { resp ->
+                    resp.thought()?.let {
+                        logger.info(
+                            "Gemini public chat thought for message #{}:\n{}",
+                            packet.id.toUInt(), it
+                        )
+                    }
+                }.parseJsonReply<PublicChatResponse>(objectMapper)
+            }.getOrElse {
+                logger.error("Failed to get reply from gemini", it)
+                PublicChatResponse(false, "")
+            }
 
+            val replyText = response.replyContent?.trim() ?: ""
+
+            if (!response.shouldReply || replyText.isBlank()) {
+                logger.info(
+                    "Gemini decide to skip reply on public channel #{} message #{}",
+                    packet.channel, packet.id.toUInt()
+                )
+                return
+            }
+
+            logger.info(
+                "Gemini reply for channel #{} message #{}: length={}, size={}B, content={}",
+                packet.channel, packet.id.toUInt(),
+                replyText.length, replyText.toByteArray().size, replyText
+            )
+
+            val messages = sliceMessage(replyText).toList()
+            var error = false
+            for (i in messages.indices) {
+                val m = messages[i]
+                val r = replyTextMessage(packet, m)
+                if (r.isSuccess) {
+                    logger.info(
+                        "Gemini public chat delivered to channel #{} message #{} ({}/{})",
+                        packet.channel, packet.id.toUInt(), i + 1, messages.size,
+                    )
+                } else {
+                    logger.error(
+                        "Failed to reply gemini public chat response for channel {} message #{} ({}/{})",
+                        packet.channel, packet.id.toUInt(), i + 1, messages.size,
+                    )
+                    error = true
+                    break
+                }
+            }
+
+            if (!error) {
+                historyMap[packet.channel] = session.getHistory(true)
             }
         }
     }
 
     override fun onCancel() {
-        sessionMap.clear()
+        historyMap.clear()
     }
 }
