@@ -79,25 +79,29 @@ class MeshtasticClientApiWriter(
 
     private suspend fun writeMessage(message: ToRadio) {
         sendLock.withLock {
-            val bytes = message.toByteArray()
-            val size = bytes.size
-            if (size > CLIENT_API_TO_RADIO_MAX_MESSAGE_LENGTH) {
-                throw IllegalArgumentException(
-                    "ToRadio message too large, " +
-                            "max: $CLIENT_API_TO_RADIO_MAX_MESSAGE_LENGTH bytes, " +
-                            "actual: $size bytes"
-                )
+            // 1 minutes should be more than enough to write and flush message.
+            // This is used to detect if device is dead (not responding).
+            withTimeout(60 * 1000) {
+                val bytes = message.toByteArray()
+                val size = bytes.size
+                if (size > CLIENT_API_TO_RADIO_MAX_MESSAGE_LENGTH) {
+                    throw IllegalArgumentException(
+                        "ToRadio message too large, " +
+                                "max: $CLIENT_API_TO_RADIO_MAX_MESSAGE_LENGTH bytes, " +
+                                "actual: $size bytes"
+                    )
+                }
+                // write wake up sequence
+                outputStream.write(WAKE_UP_SEQUENCE)
+                outputStream.flush()
+                // then start writing the message
+                outputStream.write(0x94)
+                outputStream.write(0xc3)
+                outputStream.write(size shr 8)
+                outputStream.write(size and 0xff)
+                outputStream.write(bytes)
+                outputStream.flush()
             }
-            // write wake up sequence
-            outputStream.write(WAKE_UP_SEQUENCE)
-            outputStream.flush()
-            // then start writing the message
-            outputStream.write(0x94)
-            outputStream.write(0xc3)
-            outputStream.write(size shr 8)
-            outputStream.write(size and 0xff)
-            outputStream.write(bytes)
-            outputStream.flush()
         }
     }
 
