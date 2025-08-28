@@ -16,7 +16,7 @@ services:
       - MESHTASTIC_CLIENT_PORTURI=serial:///dev/ttyACM0
     devices:
       - /dev/ttyACM0
-    restart: always
+    restart: on-failure
 
   # This is the reverse proxy for gemini.
   # The gemini sdk itself doesn't support proxy setting,
@@ -62,7 +62,7 @@ services:
         condition: service_healthy
       gemini-proxy:
         condition: service_started
-    restart: always
+    restart: on-failure
 
 volumes:
   caddy-data:
