@@ -17,6 +17,8 @@ services:
     devices:
       - /dev/ttyACM0
     restart: on-failure
+    labels:
+      mf-autoheal-app: true
 
   # This is the reverse proxy for gemini.
   # The gemini sdk itself doesn't support proxy setting,
@@ -62,7 +64,24 @@ services:
         condition: service_healthy
       gemini-proxy:
         condition: service_started
-    restart: on-failure
+    restart: always
+    labels:
+      mf-autoheal-app: true
+
+  # a monitor service to restart container when it is marked as unhealthy.
+  # docker should do this, but they failed to deliver such a feature.
+  # shame on them.
+  autoheal:
+    deploy:
+      replicas: 1
+    environment:
+      AUTOHEAL_CONTAINER_LABEL: mf-autoheal-app
+    image: willfarrell/autoheal:latest
+    network_mode: none
+    restart: always
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /var/run/docker.sock:/var/run/docker.sock
 
 volumes:
   caddy-data:
