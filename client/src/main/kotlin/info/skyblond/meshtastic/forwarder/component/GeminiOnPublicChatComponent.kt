@@ -2,29 +2,24 @@ package info.skyblond.meshtastic.forwarder.component
 
 import build.buf.gen.meshtastic.MeshPacket
 import com.fasterxml.jackson.databind.ObjectMapper
-import com.google.genai.Chat
 import com.google.genai.Client
 import com.google.genai.types.*
 import info.skyblond.meshtastic.forwarder.common.isBroadcast
 import info.skyblond.meshtastic.forwarder.common.isNotEmojiReaction
 import info.skyblond.meshtastic.forwarder.common.isTextMessage
 import info.skyblond.meshtastic.forwarder.lib.http.MFHttpClient
-import info.skyblond.meshtastic.forwarder.utils.parseJsonReply
-import info.skyblond.meshtastic.forwarder.utils.responseSchema
-import info.skyblond.meshtastic.forwarder.utils.sliceMessage
-import info.skyblond.meshtastic.forwarder.utils.thought
+import info.skyblond.meshtastic.forwarder.utils.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.stereotype.Component
-import java.util.concurrent.ConcurrentHashMap
+import kotlin.jvm.optionals.getOrNull
 
 @Component
 @ConditionalOnProperty("meshtastic.client.features.enable-gemini-on-public-chat")
@@ -37,8 +32,9 @@ class GeminiOnPublicChatComponent(
     private val objectMapper: ObjectMapper
 ) : AbstractComponent(meshPacketBus, mfHttpClient) {
     private val logger = LoggerFactory.getLogger(GeminiOnPublicChatComponent::class.java)
-    private val historyMap = ConcurrentHashMap<Int, List<Content>>()
-    private val lockMap = ConcurrentHashMap<Int, Mutex>()
+    private val geminiMultiuserChat = GeminiMultiuserChat<Int>(
+        model = "gemini-2.5-flash", gemini = gemini
+    )
 
     private val enabledChannelIndexes = enabledChannelIndexesString.split(",")
         .map { it.trim().toInt() }
@@ -59,12 +55,12 @@ class GeminiOnPublicChatComponent(
         val replyContent: String?
     )
 
-    private fun createChatSession(channelIndex: Int): Chat {
+    private fun createGenerateContentConfig(channelIndex: Int): GenerateContentConfig {
         val myNodeInfo = runBlocking(Dispatchers.IO) { myNodeInfo() }
         val myUserInfo = runBlocking(Dispatchers.IO) { myUserInfo() }
         val channelInfo = runBlocking(Dispatchers.IO) { channels()[channelIndex] }
 
-        val config = GenerateContentConfig.builder()
+        return GenerateContentConfig.builder()
             .systemInstruction(
                 Content.fromParts(
                     Part.fromText(
@@ -181,13 +177,13 @@ class GeminiOnPublicChatComponent(
             .topP(0.95f)
             .topK(30f)
             .maxOutputTokens(1000)
+            // currently we can only process 1 candidate at a time
+            .candidateCount(1)
             .build()
-
-        return gemini.chats.create("gemini-2.5-flash", config)
     }
 
     override suspend fun consume(packet: MeshPacket) {
-        lockMap.getOrPut(packet.channel) { Mutex() }.withLock {
+        geminiMultiuserChat.getLock(packet.channel).withLock {
             val textMessage = packet.decoded.payload.toStringUtf8()
             val fromNodeNum = packet.from
             logger.info(
@@ -199,37 +195,62 @@ class GeminiOnPublicChatComponent(
                 nodes().filter { it.num == fromNodeNum }.firstOrNull()
             }
 
-            val history = historyMap.getOrPut(packet.channel) { emptyList() }
-            val session = createChatSession(packet.channel)
-
-            val response = runCatching {
-                // TODO: create an OpenAI-ish chat, which allows manual management of chat contents
-                session.sendMessage(
-                    // take the last 1000 messages so we don't run out of context window
-                    history.takeLast(1000) + Content.fromParts(
-                        Part.fromText(
-                            objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(
-                                mapOf(
-                                    "nodeNum" to fromNodeNum,
-                                    "userId" to userInfo?.user?.id,
-                                    "longUsername" to userInfo?.user?.longName,
-                                    "shortUsername" to userInfo?.user?.shortName,
-                                    "deviceModel" to userInfo?.user?.hwModel?.name,
-                                )
-                            ) + "\n----\n" + textMessage
-                        )
+            // construct user input
+            val userContent = Content.builder()
+                .parts(
+                    Part.fromText(
+                        objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(
+                            mapOf(
+                                "nodeNum" to fromNodeNum,
+                                "userId" to userInfo?.user?.id,
+                                "longUsername" to userInfo?.user?.longName,
+                                "shortUsername" to userInfo?.user?.shortName,
+                                "deviceModel" to userInfo?.user?.hwModel?.name,
+                                "messageReceiveTime" to packet.getRxZonedDateTime()
+                            )
+                        ) + "\n----\n" + textMessage
                     )
-                ).also { resp ->
-                    resp.thought()?.let {
-                        logger.info(
-                            "Gemini public chat thought for message #{}:\n{}",
-                            packet.id.toUInt(), it
-                        )
-                    }
-                }.parseJsonReply<PublicChatResponse>(objectMapper)
-            }.getOrElse {
-                logger.error("Failed to get reply from gemini", it)
-                PublicChatResponse(false, "")
+                )
+                .role("user")
+                .build()
+
+            val generateConfig = createGenerateContentConfig(packet.channel)
+            var candidateToResp: List<Pair<Candidate, PublicChatResponse>>
+            var geminiResp: GenerateContentResponse
+            run {
+                var retry = 0
+                do {
+                    geminiResp = geminiMultiuserChat.complete(
+                        packet.channel, generateConfig, userContent
+                    )
+                    candidateToResp = (geminiResp.candidates().getOrNull() ?: emptyList())
+                        .mapNotNull { c ->
+                            runCatching { c.parseJsonReply<PublicChatResponse>(objectMapper) }.getOrNull()
+                                ?.let { r -> c to r }
+                        }
+                    retry++
+                } while (candidateToResp.isEmpty() && retry <= 3)
+            }
+
+            if (candidateToResp.isEmpty()) {
+                // we failed to get a valid response from gemini
+                logger.error(
+                    "Failed to get response for channel {} message #{}",
+                    packet.channel, packet.id.toUInt()
+                )
+                return
+            }
+
+            // we have a valid reply from gemini, save user's input
+            geminiMultiuserChat.addHistory(packet.channel, userContent)
+
+            // we should only have 1 valid response
+            val (candidate, response) = candidateToResp.first()
+            candidate.thought()?.let {
+                logger.info(
+                    "Gemini public chat thought for message #{}:\n{}",
+                    packet.id.toUInt(), it
+                )
             }
 
             val replyText = response.replyContent?.trim() ?: ""
@@ -269,12 +290,21 @@ class GeminiOnPublicChatComponent(
             }
 
             if (!error) {
-                historyMap[packet.channel] = session.getHistory(true)
+                // first record tool calls
+                geminiMultiuserChat.addHistory(packet.channel, geminiResp)
+                // then record the selected content
+                candidate.content().getOrNull()?.let {
+                    val replyOnlyContent = Content.builder()
+                        .role("model")
+                        .parts(Part.fromText(replyText))
+                        .build()
+                    geminiMultiuserChat.addHistory(packet.channel, replyOnlyContent)
+                }
             }
         }
     }
 
     override fun onCancel() {
-        historyMap.clear()
+        geminiMultiuserChat.removeAll()
     }
 }
