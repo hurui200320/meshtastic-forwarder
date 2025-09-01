@@ -11,6 +11,7 @@ services:
     # for dev, change this to build
     pull_policy: always
     environment:
+      - TZ=Asia/Shanghai
       - MESHTASTIC_SERVER_RWTOKENS=dev-token
       # should match the device below
       - MESHTASTIC_CLIENT_PORTURI=serial:///dev/ttyACM0
@@ -43,19 +44,16 @@ services:
     # for dev, change this to build
     pull_policy: always
     environment:
+      - TZ=Asia/Shanghai
       # reverse proxy
       - GOOGLE_GEMINI_BASE_URL=http://gemini-proxy
       - MESHTASTIC_CLIENT_BASEURL=server:8080
       - MESHTASTIC_CLIENT_TOKEN=dev-token
       - MESHTASTIC_CLIENT_ENABLETLS=false
       # enable debug reply on primary channel
-      - MESHTASTIC_CLIENT_FEATURES_ENABLEDEBUGREPLYONPRIMARYCHANNEL=true
+      - MESHTASTIC_CLIENT_FEATURES_DEBUGREPLY_PRIMARYCHANNEL_ENABLED=true
       # enable gemini on private chat (dm)
-      - MESHTASTIC_CLIENT_FEATURES_ENABLEGEMINIONPRIVATECHAT=true
-      # enable gemini on public chat (channel)
-      - MESHTASTIC_CLIENT_FEATURES_ENABLEGEMINIONPUBLICCHAT=true
-      # channel indexes for gemini public chat, comma separated integer values
-      - MESHTASTIC_CLIENT_FEATURES_PUBLICGEMINIENABLEDCHANNELINDEXES=0
+      - MESHTASTIC_CLIENT_FEATURES_GEMINI_PRIVATECHAT_ENABLED=true
     # Read the following env from secrets file:
     # + GOOGLE_API_KEY, required for gemini api usage
     env_file: secrets.env

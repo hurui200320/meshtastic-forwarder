@@ -14,7 +14,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.stereotype.Service
 
 @Service
-@ConditionalOnProperty("meshtastic.client.features.enable-debug-reply-on-primary-channel")
+@ConditionalOnProperty("meshtastic.client.features.debug-reply.primary-channel.enabled")
 class DebugReplyService(
     meshPacketBus: MeshPacketBus,
     mfHttpClient: MFHttpClient

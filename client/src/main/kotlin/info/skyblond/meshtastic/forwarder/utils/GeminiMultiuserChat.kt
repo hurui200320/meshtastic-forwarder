@@ -16,12 +16,6 @@ class GeminiMultiuserChat<UserKeyType : Any>(
 ) {
 
     private val historyMap = ConcurrentHashMap<UserKeyType, List<Content>>()
-    private val lockMap = ConcurrentHashMap<UserKeyType, Mutex>()
-
-    // TODO: investigate into flow and see if we really need this lock
-    fun getLock(userKey: UserKeyType): Mutex {
-        return lockMap.computeIfAbsent(userKey) { Mutex() }
-    }
 
     fun getHistory(userKey: UserKeyType): List<Content> {
         return historyMap[userKey] ?: emptyList()
@@ -46,7 +40,8 @@ class GeminiMultiuserChat<UserKeyType : Any>(
         maxHistory: Int = 1000,
     ): GenerateContentResponse {
         val chat = gemini.chats.create(model, config)
-        return chat.sendMessage(getHistory(userKey).takeLast(maxHistory) + userInput)
+        val contents = getHistory(userKey).takeLast(maxHistory) + userInput
+        return chat.sendMessage(contents)
     }
 
     /**
@@ -80,11 +75,9 @@ class GeminiMultiuserChat<UserKeyType : Any>(
 
     fun removeHistory(userKey: UserKeyType) {
         historyMap.remove(userKey)
-        lockMap.remove(userKey)
     }
 
     fun removeAll() {
         historyMap.clear()
-        lockMap.clear()
     }
 }

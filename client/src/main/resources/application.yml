@@ -21,17 +21,11 @@ meshtastic:
     enable-tls: false
     # features
     features:
-      # enable debug reply on primary channel
-      # MESHTASTIC_CLIENT_FEATURES_ENABLEDEBUGREPLYONPRIMARYCHANNEL
-      enable-debug-reply-on-primary-channel: true
-
-      # enable gemini on private chat
-      # MESHTASTIC_CLIENT_FEATURES_ENABLEGEMINIONPRIVATECHAT
-      enable-gemini-on-private-chat: true
-
-      # enable gemini on public chat
-      # MESHTASTIC_CLIENT_FEATURES_ENABLEGEMINIONPUBLICCHAT
-      enable-gemini-on-public-chat: true
-
-      # gemini enabled channel indexes, comma separated integer values
-      public-gemini-enabled-channel-indexes: 0
+      debug-reply:
+        primary-channel:
+          # MESHTASTIC_CLIENT_FEATURES_DEBUGREPLY_PRIMARYCHANNEL_ENABLED
+          enabled: true
+      gemini:
+        private-chat:
+          # MESHTASTIC_CLIENT_FEATURES_GEMINI_PRIVATECHAT_ENABLED
+          enabled: true
