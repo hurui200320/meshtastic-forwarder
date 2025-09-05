@@ -46,8 +46,9 @@ class MeshPacketBroadcastWebSocketController(
             .map { it.packet }
             .buffer(64, onBufferOverflow = BufferOverflow.DROP_OLDEST)
             .onEach { message ->
-                sessions.asSequence().filter { it.isOpen }.map { session ->
+                sessions.asSequence().map { session ->
                     scope.async {
+                        if (session.isOpen.not()) return@async
                         runCatching {
                             session.sendMessage(BinaryMessage(message.toByteArray()))
                         }.onFailure {

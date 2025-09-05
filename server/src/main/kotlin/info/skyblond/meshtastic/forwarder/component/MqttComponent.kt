@@ -67,10 +67,12 @@ class MqttComponent(
             .split(":", limit = 2).let { it[0] to (it.getOrNull(1)?.toIntOrNull() ?: 1883) }
 
         // check current if connected to the same server
-        val currentServerUri = mqttClientRef.get()?.currentServerURI ?: ""
-        val targetServerUri = "$scheme://$host:$port"
-        if (currentServerUri == targetServerUri) {
-            return
+        mqttClientRef.get()?.let { currentClient ->
+            val currentServerUri = currentClient.currentServerURI ?: ""
+            val targetServerUri = "$scheme://$host:$port"
+            if (currentClient.isConnected && currentServerUri == targetServerUri) {
+                return
+            }
         }
 
         val mqttClient = MqttAsyncClient(
@@ -195,8 +197,8 @@ class MqttComponent(
         if (force) {
             runCatching { client.disconnectForcibly() }
         } else {
-            // give 10s timeout for disconnecting
-            runCatching { client.disconnect().waitForCompletion(10_000) }
+            // give 3s timeout for disconnecting
+            runCatching { client.disconnect().waitForCompletion(3000) }
         }
         logger.info("Closing MQTT client...")
         // force to close the connection anyway
